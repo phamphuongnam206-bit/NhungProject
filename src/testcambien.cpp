@@ -3,6 +3,8 @@
 #include <VL53L0X.h>
 
 constexpr uint32_t SENSOR_COUNT = 4;
+constexpr uint16_t NO_TARGET_MM = 8190;
+constexpr uint8_t VALID_RANGE_STATUS = 11;
 
 const uint32_t xshutPins[SENSOR_COUNT] = {
   PA2, PA3, PA4, PA5
@@ -103,7 +105,7 @@ void setup() {
     Serial.println(" BEFORE SENSOR INIT");
     Serial.flush();
 
-    if (!sensors[i].init()) {
+    if (!sensors[i].init() || sensors[i].last_status != 0) {
       Serial.print(sensorNames[i]);
       Serial.println(" INIT FAILED");
       Serial.flush();
@@ -146,6 +148,44 @@ void setup() {
   Serial.flush();
 }
 
+void printReading(uint32_t i) {
+  const uint16_t distance = sensors[i].readRangeSingleMillimeters();
+  if (sensors[i].timeoutOccurred()) {
+    Serial.print("TIMEOUT");
+    return;
+  }
+  if (sensors[i].last_status != 0) {
+    Serial.print("I2C");
+    return;
+  }
+
+  Wire.beginTransmission(sensorAddresses[i]);
+  Wire.write(uint8_t(VL53L0X::RESULT_RANGE_STATUS));
+  if (Wire.endTransmission(false) != 0 ||
+      Wire.requestFrom(sensorAddresses[i], uint8_t(1)) != 1) {
+    Serial.print("I2C_STATUS");
+    return;
+  }
+  const int statusReg = Wire.read();
+  if (statusReg < 0) {
+    Serial.print("I2C_STATUS");
+    return;
+  }
+  const int status = (statusReg & 0x78) >> 3;
+
+  Serial.print("RAW=");
+  Serial.print(distance);
+  Serial.print(" mm ST=");
+  Serial.print(status);
+  if (distance == 0 || distance >= NO_TARGET_MM) {
+    Serial.print(" INVALID_RANGE");
+  } else if (status != VALID_RANGE_STATUS) {
+    Serial.print(" INVALID_STATUS");
+  } else {
+    Serial.print(" OK");
+  }
+}
+
 void loop() {
   Serial.print("TEST=");
   Serial.print(counter++);
@@ -160,15 +200,7 @@ void loop() {
       continue;
     }
 
-    uint16_t distance =
-        sensors[i].readRangeSingleMillimeters();
-
-    if (sensors[i].timeoutOccurred()) {
-      Serial.print("TIMEOUT");
-    } else {
-      Serial.print(distance);
-      Serial.print(" mm");
-    }
+    printReading(i);
   }
 
   Serial.println();
