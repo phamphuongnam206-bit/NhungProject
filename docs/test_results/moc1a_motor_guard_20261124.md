@@ -9,7 +9,9 @@ Thời gian lệnh MOTOR vẫn giới hạn 200–3000 ms. Lệnh ngắn hơn 85
 - PlatformIO `run -e pid_calibration -t clean`: PASS.
 - PlatformIO `run -e pid_calibration`: PASS (ARM firmware, không upload). Flash 56852/64512 byte (88,1%); RAM tĩnh 5284/20480 byte (25,8%). Warning `boolean` deprecated từ Pololu VL53L0X như baseline, không có lỗi build mới.
 - Diff chỉ thay đổi đường MOTOR/SWEEP và chú thích ở đầu file. Pinout, PI, cảm biến và `ticks_per_rev` không đổi.
-- Kiểm tra runtime mất xung, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**. Chưa cấp VM, chưa chạy motor, chưa nạp bản này lên PCB.
+- Nạp `platformio run -e pid_calibration -t upload` qua ST-Link: **PASS** (`Programming Finished`, `Verified OK`, `SUCCESS`). OpenOCD vẫn in hai dòng `can't assert SRST`; đã đọc lại trạng thái sau nạp bằng SWD, nên không dựa riêng vào thông báo reset.
+- Khi pin VM đã tháo và hai bánh đứng yên: GPIOB CRL cấu hình PB0 là output; GPIOB ODR bit 0 = 0 và IDR bit 0 = 0; TIM2/TIM3 có encoder mode 3, CNT = 0/0 và đứng yên sau 3 giây. RAM báo `allReady=1`, `fault=null`, `arming=0`, `paused=1`, `guardExpired=0`, `tickSeen=1`, `motorJob.active=0`. Đây là **PASS cho nạp và boot an toàn với VM tắt**, chưa phải PASS cơ chế stall.
+- Kiểm tra runtime mất xung, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**. Chưa cấp VM hoặc chạy motor. Chưa quan sát banner UART và chưa đo bằng đồng hồ tại chân STBY của TB6612 trong bản mới.
 
 ## Điều kiện kiểm thử phần cứng sau này
 
