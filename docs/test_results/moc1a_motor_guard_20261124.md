@@ -14,7 +14,19 @@ Thời gian lệnh MOTOR vẫn giới hạn 200–3000 ms. Lệnh ngắn hơn 85
 - USB–UART CH340 được nhận ở COM8 sau khi cắm lại cùng ST-Link. Gửi `HELP\n` ở 115200 baud, nhận đủ 692 byte bắt đầu bằng `PI_CAL_V5 UART115200. Boot locked...`: **PASS đường UART hai chiều**. SWD cùng lúc báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0. COM3 trước đó không trả lời vì ST-Link đã bị rút; COM8 là cổng hiện tại, không phải số cổng cố định.
 - Người dùng đo bằng đồng hồ tại chân STBY/SBTY của TB6612 so với GND, khi pin VM đã tháo: **gần 0 V**. Đây là phép đo vật lý do người dùng báo, chưa đo lại khi cấp pin VM.
 - Sau khi cắm pin, người dùng đo tại TB6612 so với GND: **STBY ≈ 0 V, VCC logic ≈ 4,27 V, VM ≈ 8,1 V**. SWD đọc `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0; gửi `STOP\n` qua COM8 nhận `PAUSED`. Chưa có lệnh MOTOR. Datasheet Toshiba ghi dải hoạt động VCC 2,7–5,5 V, VM 2,5–13,5 V và VIH(min)=0,7×VCC (ở 4,27 V là 2,989 V); mức HIGH thực tế tại chân driver chưa đo, điện áp định mức motor N20 chưa xác nhận. Nguồn logic 4,27 V cũng chưa được giải thích so với net `VCC5V` trên sơ đồ. Nguồn datasheet: https://toshiba.semicon-storage.com/info/TB6612FNG_datasheet_en_20141001.pdf?did=10660&prodName=TB6612FNG
-- Kiểm tra runtime mất xung, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**. Chưa cấp VM hoặc chạy motor.
+- Kiểm tra riêng tình huống mất xung liên tục, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**; ba lượt chạy bình thường bên dưới không tạo tình huống này.
+
+## Thử MOTOR đơn bánh khi kê xe (người dùng cho phép, VM khoảng 8,1 V)
+
+Nguồn motor định mức N20 chưa nhận dạng. Người dùng xác nhận hai bánh kê khỏi mặt bàn, dây ổn định và không có nóng/mùi lạ. Trước mỗi lượt: `STOP`, `TRACE 1` trả `PAUSED`, `TRACE_ON`; sau mỗi lượt gửi `STOP`. Các số dưới đây là log UART thực tế, chưa phải đo tốc độ bánh độc lập.
+
+| Lệnh | Kết quả UART | Nhận xét |
+| --- | --- | --- |
+| `MOTOR R 80 1200` | `MOTOR_DONE`, `COUNTS_R=366`, `COUNTS_L=-1`, `FAULT=NONE`, `PAUSED`; PWM_R đọc lại 80 | RAW_R khoảng 650–1274 counts/s đầu lượt, về 0–18 gần cuối dù PWM vẫn 80. Người dùng thấy bánh phải vẫn quay suốt lượt. |
+| `MOTOR R 100 1200` | `MOTOR_DONE`, `COUNTS_R=247`, `COUNTS_L=-5`, `FAULT=NONE`, `PAUSED`; PWM_R đọc lại 100 | RAW_R khoảng 982–794 đầu lượt, rồi phần lớn gần 0–168. Người dùng báo bánh vẫn quay, không nóng/mùi lạ. Tăng PWM lại cho số đếm thấp hơn, chưa giải thích. |
+| `MOTOR L 80 1200` | `MOTOR_DONE`, `COUNTS_L=-2852`, `COUNTS_R=0`, `FAULT=NONE`, `PAUSED`; PWM_L đọc lại 80 | RAW_L giữ khoảng 2333–2595 counts/s sau khởi động. Người dùng xác nhận chỉ J13 quay đều, J12 đứng yên. |
+
+Sau các lượt, SWD báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0. **J13: PASS bước đầu về cấp PWM, nhận xung, đúng bánh và tự dừng. J12: FAIL về tính ổn định số xung khi motor đang quay**; chưa xác định do encoder, dây, nguồn, driver hay cơ khí. `STALL_MS` chưa được kích hoạt vì J12 vẫn có xung rải rác; không coi guard mất xung đã PASS. Chưa thử đảo chiều, STOP giữa lúc motor chạy, điều khiển PI hoặc tải trên mặt đất. Dừng thử motor thêm cho đến khi kiểm tra riêng J12.
 
 ## Điều kiện kiểm thử phần cứng sau này
 
