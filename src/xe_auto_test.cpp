@@ -12,6 +12,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ONE_RUN_CALIBRATED
+#define ONE_RUN_CALIBRATED 1
+#endif
+#if (ONE_RUN_CALIBRATED != 0) && (ONE_RUN_CALIBRATED != 1)
+#error "ONE_RUN_CALIBRATED must be 0 or 1"
+#endif
+
 namespace AutoTest {
 
 constexpr float PI = 3.14159265359f;
@@ -815,6 +822,11 @@ void setup() {
     Serial.setRx(PA10);
     Serial.setTx(PA9);
     Serial.begin(38400, SERIAL_8N1);
+#if !ONE_RUN_CALIBRATED
+    disableMotors();
+    Serial.println("ONE_RUN_LOCKED NEEDS_MEASUREMENT");
+    return;
+#endif
     initEncoders();
     sensorsReady = initSensors();
     if (!sensorsReady) navigator.stop("VL53_INIT");
@@ -828,6 +840,10 @@ void setup() {
 
 void loop() {
     using namespace AutoTest;
+#if !ONE_RUN_CALIBRATED
+    disableMotors();
+    return;
+#endif
     for (uint8_t i = 0; i < 8 && Serial.available(); ++i) {
         const int command = Serial.read();
         if (command == 'P' || command == '0') { navigator.stop("PAUSED"); disableMotors(); }
