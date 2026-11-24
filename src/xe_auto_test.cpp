@@ -454,6 +454,8 @@ Launch launch;
 #if !ONE_RUN_CALIBRATED
 int32_t lockedLeftTicks = 0, lockedRightTicks = 0;
 int lockedWho = -1;
+uint8_t lockedVlFailed = 0xff;
+const char *lockedVlStage = "NONE";
 #endif
 
 struct Wheel {
@@ -621,7 +623,14 @@ bool writeReg(TwoWire &bus, uint8_t address, uint8_t reg, uint8_t value) {
     return bus.endTransmission() == 0;
 }
 
-bool initSensors() {
+bool initSensors(uint8_t *failedIndex = nullptr, const char **failedStage = nullptr) {
+    if (failedIndex) *failedIndex = 0xff;
+    if (failedStage) *failedStage = "NONE";
+    const auto fail = [&](uint8_t index, const char *stage) {
+        if (failedIndex) *failedIndex = index;
+        if (failedStage) *failedStage = stage;
+        return false;
+    };
     Wire.setSCL(PB10);
     Wire.setSDA(PB11);
     Wire.begin();
@@ -632,15 +641,15 @@ bool initSensors() {
         auto &sensor = sensors[i];
         sensor.setBus(&Wire);
         sensor.setTimeout(100);
-        if (!sensor.init()) return false;
+        if (!sensor.init()) return fail(i, "BOOT");
         sensor.setAddress(ADDRESS[i]);
         if (sensor.last_status || !sensor.setMeasurementTimingBudget(RANGE_BUDGET_US) ||
             !sensor.setSignalRateLimit(0.25f) || sensor.last_status)
-            return false;
+            return fail(i, "CONFIG");
     }
-    for (auto &sensor : sensors) {
-        sensor.startContinuous();
-        if (sensor.last_status) return false;
+    for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+        sensors[i].startContinuous();
+        if (sensors[i].last_status) return fail(i, "START");
     }
     return true;
 }
@@ -819,6 +828,13 @@ void printLockedTelemetry() {
     if (lockedWho < 0) Serial.print("NA");
     else { Serial.print("0x"); Serial.print(lockedWho, HEX); }
     Serial.print(" VL_INIT="); Serial.print(sensorsReady ? "OK" : "FAIL");
+    if (!sensorsReady) {
+        Serial.print(" VL_FAIL=");
+        if (lockedVlFailed < SENSOR_COUNT) {
+            Serial.print('J'); Serial.print(8 + lockedVlFailed);
+            Serial.print(':'); Serial.print(lockedVlStage);
+        } else Serial.print("UNKNOWN");
+    }
     for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
         const auto &range = scan.ranges[i];
         Serial.print(" J"); Serial.print(8 + i); Serial.print('=');
@@ -867,7 +883,7 @@ void setup() {
             break;
         }
     }
-    sensorsReady = initSensors();
+    sensorsReady = initSensors(&lockedVlFailed, &lockedVlStage);
     Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status Z=zero_ticks");
     printLockedTelemetry();
     return;
