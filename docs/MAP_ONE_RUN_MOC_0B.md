@@ -30,6 +30,8 @@ Lệnh: `platformio run -e hybrid_2laps -e map_auto -e xe_auto_test -e pid_calib
 
 Trước đó một lần build bị lỗi quyền ghi cache PlatformIO (`WinError 5`), không phải lỗi code. Lần chạy có quyền ghi đã hoàn tất 6/6 PASS. Có cảnh báo `boolean` deprecated từ thư viện VL53L0X; không có lỗi biên dịch/liên kết. Build PASS chỉ xác nhận mã nguồn và dung lượng tĩnh, không xác nhận encoder, cảm biến, watchdog hay motor trên PCB.
 
+Kiểm tra chốt biên dịch bằng `arm-none-eabi-g++ -std=gnu++11 -fsyntax-only -DXE_AUTO_NATIVE_TEST -DMAP_ONE_RUN=1 -DONE_RUN_CALIBRATED=<0|1> -Iinclude src/xe_auto_test.cpp`: giá trị `0` thoát mã 0; cố bật giá trị `1` thoát mã 1 tại `#error "map_one_run must remain motor-locked..."`. Đây là kiểm tra phần mềm, chưa phải phép đo STBY khi reset.
+
 ## Tài nguyên và an toàn cần kiểm trên PCB
 
 | Chức năng | Chân/tài nguyên | Kiểm tra |
