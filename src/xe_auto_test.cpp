@@ -465,6 +465,29 @@ int32_t lockedGyroSum = 0;
 float lockedGyroBiasRaw = 0;
 float lockedYawDeg = 0, lockedPreviousDps = 0;
 bool lockedYawValid = false, lockedYawSeeded = false;
+uint32_t lockedLoopMaxUs = 0, lockedGyroGapMaxMs = 0, lockedVlMaxUs = 0;
+class LockedLog : public Print {
+public:
+    char bytes[768];
+    size_t used = 0, sent = 0;
+    uint32_t skipped = 0, overflows = 0;
+    bool pending() const { return used != sent; }
+    size_t write(uint8_t byte) override {
+        if (used == sizeof(bytes)) { ++overflows; return 0; }
+        bytes[used++] = char(byte);
+        return 1;
+    }
+    void pump() {
+        int room = Serial.availableForWrite();
+        size_t count = used - sent;
+        if (room <= 0) return;
+        if (count > size_t(room)) count = size_t(room);
+        if (count > 32) count = 32;
+        if (count) sent += Serial.write(reinterpret_cast<const uint8_t *>(bytes + sent), count);
+        if (sent == used) sent = used = 0;
+    }
+};
+LockedLog lockedLog;
 #endif
 
 struct Wheel {
@@ -898,6 +921,7 @@ void pollLockedGyro(uint32_t now) {
     }
     const int16_t raw = int16_t((uint16_t(bytes[0]) << 8) | bytes[1]);
     const uint32_t dtMs = now - lockedLastGyroAt;
+    if (lockedLastGyroAt && dtMs > lockedGyroGapMaxMs) lockedGyroGapMaxMs = dtMs;
     const bool gap = lockedLastGyroAt && dtMs > 50;
     lockedLastGyroAt = now;
     lockedGyroRaw = raw;
@@ -953,46 +977,52 @@ void zeroLockedEncoders() {
 }
 
 void printLockedTelemetry() {
+    if (lockedLog.pending()) { ++lockedLog.skipped; return; }
     const uint32_t now = millis();
-    Serial.print("ONE_RUN_LOCKED TIM3_L="); Serial.print(lockedLeftTicks);
-    Serial.print(" TIM2_R="); Serial.print(lockedRightTicks);
-    Serial.print(" MPU_WHO=");
-    if (lockedWho < 0) Serial.print("NA");
-    else { Serial.print("0x"); Serial.print(lockedWho, HEX); }
-    Serial.print(" GYRO="); Serial.print(lockedGyroState);
-    Serial.print(" GZ_RAW=");
-    if (lockedLastGyroAt) Serial.print(lockedGyroRaw);
-    else Serial.print("NA");
-    Serial.print(" BIAS_N="); Serial.print(lockedBiasSamples);
-    Serial.print(" YAW_DEG="); Serial.print(lockedYawDeg, 2);
-    Serial.print(" YAW_VALID=");
-    Serial.print(lockedYawValid && now - lockedLastGyroAt <= 50 ? 1 : 0);
+    lockedLog.print("ONE_RUN_LOCKED TIM3_L="); lockedLog.print(lockedLeftTicks);
+    lockedLog.print(" TIM2_R="); lockedLog.print(lockedRightTicks);
+    lockedLog.print(" MPU_WHO=");
+    if (lockedWho < 0) lockedLog.print("NA");
+    else { lockedLog.print("0x"); lockedLog.print(lockedWho, HEX); }
+    lockedLog.print(" GYRO="); lockedLog.print(lockedGyroState);
+    lockedLog.print(" GZ_RAW=");
+    if (lockedLastGyroAt) lockedLog.print(lockedGyroRaw);
+    else lockedLog.print("NA");
+    lockedLog.print(" BIAS_N="); lockedLog.print(lockedBiasSamples);
+    lockedLog.print(" YAW_DEG="); lockedLog.print(lockedYawDeg, 2);
+    lockedLog.print(" YAW_VALID=");
+    lockedLog.print(lockedYawValid && now - lockedLastGyroAt <= 50 ? 1 : 0);
     if (lockedBiasReady) {
-        Serial.print(" BIAS_CANDIDATE_RAW="); Serial.print(lockedGyroBiasRaw, 2);
-        Serial.print(" GZ_DPS=");
+        lockedLog.print(" BIAS_CANDIDATE_RAW="); lockedLog.print(lockedGyroBiasRaw, 2);
+        lockedLog.print(" GZ_DPS=");
         if (now - lockedLastGyroAt < 100 && lockedGyroFresh)
-            Serial.print((lockedGyroRaw - lockedGyroBiasRaw) / 32.8f, 2);
-        else Serial.print("NA");
+            lockedLog.print((lockedGyroRaw - lockedGyroBiasRaw) / 32.8f, 2);
+        else lockedLog.print("NA");
     }
-    Serial.print(" VL_INIT="); Serial.print(sensorsReady ? "OK" : "FAIL");
+    lockedLog.print(" VL_INIT="); lockedLog.print(sensorsReady ? "OK" : "FAIL");
     if (!sensorsReady) {
-        Serial.print(" VL_FAIL=");
+        lockedLog.print(" VL_FAIL=");
         if (lockedVlFailed < SENSOR_COUNT) {
-            Serial.print('J'); Serial.print(8 + lockedVlFailed);
-            Serial.print(':'); Serial.print(lockedVlStage);
-        } else Serial.print("UNKNOWN");
+            lockedLog.print('J'); lockedLog.print(8 + lockedVlFailed);
+            lockedLog.print(':'); lockedLog.print(lockedVlStage);
+        } else lockedLog.print("UNKNOWN");
     }
     for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
         const auto &range = scan.ranges[i];
-        Serial.print(" J"); Serial.print(8 + i); Serial.print('=');
+        lockedLog.print(" J"); lockedLog.print(8 + i); lockedLog.print('=');
         const bool fresh = sensorsReady && !range.rejected && range.count &&
                            now - range.sampledAt < FRAME_AGE_MS;
-        Serial.print(fresh ? int(range.raw) : -1);
-        Serial.print('/');
-        Serial.print(!sensorsReady ? "INIT_FAIL" :
+        lockedLog.print(fresh ? int(range.raw) : -1);
+        lockedLog.print('/');
+        lockedLog.print(!sensorsReady ? "INIT_FAIL" :
                      range.problem ? range.problem : fresh ? "OK" : "STALE");
     }
-    Serial.println();
+    lockedLog.print(" LOOP_MAX_US="); lockedLog.print(lockedLoopMaxUs);
+    lockedLog.print(" GYRO_GAP_MAX_MS="); lockedLog.print(lockedGyroGapMaxMs);
+    lockedLog.print(" VL_MAX_US="); lockedLog.print(lockedVlMaxUs);
+    lockedLog.print(" LOG_SKIPPED="); lockedLog.print(lockedLog.skipped);
+    lockedLog.print(" LOG_OVERFLOW="); lockedLog.print(lockedLog.overflows);
+    lockedLog.println();
 }
 #endif
 
@@ -1044,6 +1074,13 @@ void loop() {
 #if !ONE_RUN_CALIBRATED
     {
         GPIOB->BRR = 1U; // PB0/STBY stays LOW; motor-control code is unreachable.
+        const uint32_t loopAt = micros();
+        static uint32_t previousLoopAt = 0;
+        static bool haveLoop = false;
+        if (haveLoop && loopAt - previousLoopAt > lockedLoopMaxUs)
+            lockedLoopMaxUs = loopAt - previousLoopAt;
+        previousLoopAt = loopAt;
+        haveLoop = true;
         const uint32_t now = millis();
         static uint32_t lastEncoderSample = 0, lastPoll = 0, lastReport = 0;
         if (now - lastEncoderSample >= 20) {
@@ -1057,11 +1094,14 @@ void loop() {
         static uint8_t nextSensor = 0;
         if (sensorsReady && now - lastPoll >= 2) {
             lastPoll = now;
+            const uint32_t probeAt = micros();
             pollSensor(nextSensor);
+            const uint32_t probeUs = micros() - probeAt;
+            if (probeUs > lockedVlMaxUs) lockedVlMaxUs = probeUs;
             nextSensor = (nextSensor + 1) % SENSOR_COUNT;
         }
         bool report = false;
-        for (uint8_t i = 0; i < 8 && Serial.available(); ++i) {
+        for (uint8_t i = 0; i < 8 && !lockedLog.pending() && Serial.available(); ++i) {
             const int command = Serial.read();
             if (command == '?') report = true;
             if (command == 'Y' || command == 'y') {
@@ -1085,6 +1125,7 @@ void loop() {
             lastReport = now;
             printLockedTelemetry();
         }
+        lockedLog.pump();
         return;
     }
 #endif
