@@ -26,7 +26,11 @@ Nguồn motor định mức N20 chưa nhận dạng. Người dùng xác nhận 
 | `MOTOR R 100 1200` | `MOTOR_DONE`, `COUNTS_R=247`, `COUNTS_L=-5`, `FAULT=NONE`, `PAUSED`; PWM_R đọc lại 100 | RAW_R khoảng 982–794 đầu lượt, rồi phần lớn gần 0–168. Người dùng báo bánh vẫn quay, không nóng/mùi lạ. Tăng PWM lại cho số đếm thấp hơn, chưa giải thích. |
 | `MOTOR L 80 1200` | `MOTOR_DONE`, `COUNTS_L=-2852`, `COUNTS_R=0`, `FAULT=NONE`, `PAUSED`; PWM_L đọc lại 80 | RAW_L giữ khoảng 2333–2595 counts/s sau khởi động. Người dùng xác nhận chỉ J13 quay đều, J12 đứng yên. |
 
-Sau các lượt, SWD báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0. **J13: PASS bước đầu về cấp PWM, nhận xung, đúng bánh và tự dừng. J12: FAIL về tính ổn định số xung khi motor đang quay**; chưa xác định do encoder, dây, nguồn, driver hay cơ khí. `STALL_MS` chưa được kích hoạt vì J12 vẫn có xung rải rác; không coi guard mất xung đã PASS. Chưa thử đảo chiều, STOP giữa lúc motor chạy, điều khiển PI hoặc tải trên mặt đất. Dừng thử motor thêm cho đến khi kiểm tra riêng J12.
+Sau các lượt đầu, SWD báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0. **J13: PASS bước đầu về cấp PWM, nhận xung, đúng bánh và tự dừng. J12: FAIL về tính ổn định số xung khi motor đang quay** trước khi kiểm tra lại giắc. Chưa xác định do encoder, dây, nguồn, driver hay cơ khí. `STALL_MS` chưa được kích hoạt vì J12 vẫn có xung rải rác; không coi guard mất xung đã PASS.
+
+Người dùng ngắt nguồn và kiểm tra/cắm lại riêng J12, sau đó xác nhận bánh kê và pin VM cắm. Mốc TIM2 khi đứng yên là 726 và giữ nguyên sau 2 giây. Hai lượt `MOTOR R 80 1200` lặp lại có `COUNTS_R=2997` và `3076`, `COUNTS_L=0`; RAW_R sau khởi động duy trì khoảng 2500–2650 counts/s, `FAULT=NONE`, `MOTOR_DONE`, `PAUSED`. Chênh tổng count khoảng 2,6%; hiện tượng mất xung trước đó **không tái hiện ở hai lượt này**. Không thể khẳng định nguyên nhân là tiếp xúc J12 nếu chưa có phép đo riêng từng tiếp điểm.
+
+Thử dừng giữa lượt: gửi `MOTOR R 80 800`, sau khoảng 250 ms gửi `STOP`. UART nhận `MOTOR_START`, hai dòng TRACE tại 107/209 ms và `PAUSED`, không có `MOTOR_DONE`; SWD sau đó báo PB0 LOW, `paused=1`, `fault=null`. Người dùng quan sát bánh phải dừng ngay. **PASS bước đầu cho STOP chủ động và motor J12 trên giá kê.** Chưa đo độ trễ STBY bằng oscilloscope, chưa thử đảo chiều, chưa kích hoạt lỗi mất xung liên tục, chưa chạy PI hoặc bánh có tải trên mặt đất. Điện áp định mức motor vẫn chưa biết; không suy diễn an toàn vận hành lâu dài từ các lượt ngắn.
 
 ## Điều kiện kiểm thử phần cứng sau này
 
