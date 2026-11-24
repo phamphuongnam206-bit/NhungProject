@@ -19,6 +19,13 @@
 #error "ONE_RUN_CALIBRATED must be 0 or 1"
 #endif
 
+#ifdef MAP_ONE_RUN
+#include "map_one_run_calibration.h"
+#if ONE_RUN_CALIBRATED != 0
+#error "map_one_run must remain motor-locked until calibration and safety gates pass"
+#endif
+#endif
+
 namespace AutoTest {
 
 constexpr float PI = 3.14159265359f;
