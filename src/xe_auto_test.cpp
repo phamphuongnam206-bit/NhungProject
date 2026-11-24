@@ -805,6 +805,12 @@ void printStatus() {
 }
 
 #if !ONE_RUN_CALIBRATED
+void zeroLockedEncoders() {
+    lastCount[0] = uint16_t(TIM3->CNT);
+    lastCount[1] = uint16_t(TIM2->CNT);
+    lockedLeftTicks = lockedRightTicks = 0;
+}
+
 void printLockedTelemetry() {
     const uint32_t now = millis();
     Serial.print("ONE_RUN_LOCKED TIM3_L="); Serial.print(lockedLeftTicks);
@@ -862,7 +868,7 @@ void setup() {
         }
     }
     sensorsReady = initSensors();
-    Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status");
+    Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status Z=zero_ticks");
     printLockedTelemetry();
     return;
 #endif
@@ -896,8 +902,15 @@ void loop() {
             nextSensor = (nextSensor + 1) % SENSOR_COUNT;
         }
         bool report = false;
-        for (uint8_t i = 0; i < 8 && Serial.available(); ++i)
-            if (Serial.read() == '?') report = true;
+        for (uint8_t i = 0; i < 8 && Serial.available(); ++i) {
+            const int command = Serial.read();
+            if (command == '?') report = true;
+            if (command == 'Z' || command == 'z') {
+                zeroLockedEncoders();
+                Serial.println("ENC_ZERO");
+                report = true;
+            }
+        }
         if (report || now - lastReport >= 1000) {
             lastReport = now;
             printLockedTelemetry();
