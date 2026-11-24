@@ -11,7 +11,8 @@ Thời gian lệnh MOTOR vẫn giới hạn 200–3000 ms. Lệnh ngắn hơn 85
 - Diff chỉ thay đổi đường MOTOR/SWEEP và chú thích ở đầu file. Pinout, PI, cảm biến và `ticks_per_rev` không đổi.
 - Nạp `platformio run -e pid_calibration -t upload` qua ST-Link: **PASS** (`Programming Finished`, `Verified OK`, `SUCCESS`). OpenOCD vẫn in hai dòng `can't assert SRST`; đã đọc lại trạng thái sau nạp bằng SWD, nên không dựa riêng vào thông báo reset.
 - Khi pin VM đã tháo và hai bánh đứng yên: GPIOB CRL cấu hình PB0 là output; GPIOB ODR bit 0 = 0 và IDR bit 0 = 0; TIM2/TIM3 có encoder mode 3, CNT = 0/0 và đứng yên sau 3 giây. RAM báo `allReady=1`, `fault=null`, `arming=0`, `paused=1`, `guardExpired=0`, `tickSeen=1`, `motorJob.active=0`. Đây là **PASS cho nạp và boot an toàn với VM tắt**, chưa phải PASS cơ chế stall.
-- Kiểm tra runtime mất xung, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**. Chưa cấp VM hoặc chạy motor. Chưa quan sát banner UART và chưa đo bằng đồng hồ tại chân STBY của TB6612 trong bản mới.
+- USB–UART CH340 được nhận ở COM8 sau khi cắm lại cùng ST-Link. Gửi `HELP\n` ở 115200 baud, nhận đủ 692 byte bắt đầu bằng `PI_CAL_V5 UART115200. Boot locked...`: **PASS đường UART hai chiều**. SWD cùng lúc báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 0. COM3 trước đó không trả lời vì ST-Link đã bị rút; COM8 là cổng hiện tại, không phải số cổng cố định.
+- Kiểm tra runtime mất xung, thời gian thực tới STBY LOW và dòng UART `MOTOR_ABORT`: **NOT_TESTED_ON_HARDWARE**. Chưa cấp VM hoặc chạy motor. Chưa đo bằng đồng hồ tại chân STBY của TB6612 trong bản mới.
 
 ## Điều kiện kiểm thử phần cứng sau này
 
