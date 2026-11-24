@@ -458,6 +458,8 @@ uint8_t lockedVlFailed = 0xff;
 const char *lockedVlStage = "NONE";
 bool lockedImuReady = false, lockedBiasReady = false, lockedGyroFresh = false;
 const char *lockedGyroState = "NO_ID";
+const char *lockedConfigStage = "NONE";
+uint8_t lockedConfigReg = 0, lockedConfigExpected = 0, lockedConfigActual = 0;
 uint32_t lockedGyroReadyAt = 0, lockedLastGyroAt = 0, lockedLastWheelMotionAt = 0;
 uint16_t lockedBiasSamples = 0;
 int16_t lockedGyroRaw = 0, lockedGyroMin = 0, lockedGyroMax = 0;
@@ -868,20 +870,33 @@ void initLockedGyro() {
         return;
     }
     // Diagnostic-only profile: +/-1000 dps, 100 Hz, DLPF=3, data-ready flag.
-    if (!writeReg(imu, imuAddress, 0x6B, 1) ||
-        !writeReg(imu, imuAddress, 0x6C, 0) ||
-        !writeReg(imu, imuAddress, 0x19, 9) ||
-        !writeReg(imu, imuAddress, 0x1A, 3) ||
-        !writeReg(imu, imuAddress, 0x1B, 0x10) ||
-        !writeReg(imu, imuAddress, 0x38, 1)) {
-        lockedGyroState = "CONFIG";
-        return;
+    const uint8_t registers[] = {0x6B, 0x6C, 0x19, 0x1A, 0x1B, 0x38};
+    const uint8_t values[] = {1, 0, 9, 3, 0x10, 1};
+    for (uint8_t i = 0; i < sizeof(registers); ++i) {
+        if (!writeReg(imu, imuAddress, registers[i], values[i])) {
+            lockedConfigStage = "WRITE";
+            lockedConfigReg = registers[i];
+            lockedConfigExpected = values[i];
+            lockedGyroState = "CONFIG";
+            return;
+        }
     }
-    uint8_t config[3] = {}, power = 0;
-    if (!readRegs(imu, imuAddress, 0x19, config, sizeof(config)) ||
-        !readRegs(imu, imuAddress, 0x6B, &power, 1) ||
-        config[0] != 9 || config[1] != 3 || config[2] != 0x10 ||
-        (power & 0x7f) != 1) {
+    // Read one register per transaction: the F1 I2C burst can repeat the last byte.
+    const uint8_t checkRegisters[] = {0x19, 0x1A, 0x1B, 0x6B};
+    const uint8_t expected[] = {9, 3, 0x10, 1};
+    for (uint8_t i = 0; i < sizeof(checkRegisters); ++i) {
+        uint8_t actual = 0;
+        if (!readRegs(imu, imuAddress, checkRegisters[i], &actual, 1)) {
+            lockedConfigStage = "READ";
+            lockedConfigReg = checkRegisters[i];
+            lockedGyroState = "CONFIG";
+            return;
+        }
+        if ((i == 3 ? actual & 0x7f : actual) == expected[i]) continue;
+        lockedConfigStage = "MISMATCH";
+        lockedConfigReg = checkRegisters[i];
+        lockedConfigExpected = expected[i];
+        lockedConfigActual = actual;
         lockedGyroState = "CONFIG";
         return;
     }
@@ -985,6 +1000,12 @@ void printLockedTelemetry() {
     if (lockedWho < 0) lockedLog.print("NA");
     else { lockedLog.print("0x"); lockedLog.print(lockedWho, HEX); }
     lockedLog.print(" GYRO="); lockedLog.print(lockedGyroState);
+    if (lockedConfigStage[0] != 'N') {
+        lockedLog.print(" CFG_STAGE="); lockedLog.print(lockedConfigStage);
+        lockedLog.print(" CFG_REG=0x"); lockedLog.print(lockedConfigReg, HEX);
+        lockedLog.print(" CFG_EXPECT=0x"); lockedLog.print(lockedConfigExpected, HEX);
+        lockedLog.print(" CFG_ACTUAL=0x"); lockedLog.print(lockedConfigActual, HEX);
+    }
     lockedLog.print(" GZ_RAW=");
     if (lockedLastGyroAt) lockedLog.print(lockedGyroRaw);
     else lockedLog.print("NA");
