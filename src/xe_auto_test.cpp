@@ -456,6 +456,13 @@ int32_t lockedLeftTicks = 0, lockedRightTicks = 0;
 int lockedWho = -1;
 uint8_t lockedVlFailed = 0xff;
 const char *lockedVlStage = "NONE";
+bool lockedImuReady = false, lockedBiasReady = false, lockedGyroFresh = false;
+const char *lockedGyroState = "NO_ID";
+uint32_t lockedGyroReadyAt = 0, lockedLastGyroAt = 0, lockedLastWheelMotionAt = 0;
+uint16_t lockedBiasSamples = 0;
+int16_t lockedGyroRaw = 0, lockedGyroMin = 0, lockedGyroMax = 0;
+int32_t lockedGyroSum = 0;
+float lockedGyroBiasRaw = 0;
 #endif
 
 struct Wheel {
@@ -814,6 +821,112 @@ void printStatus() {
 }
 
 #if !ONE_RUN_CALIBRATED
+void resetLockedGyroWindow() {
+    lockedBiasSamples = 0;
+    lockedGyroSum = 0;
+    lockedGyroMin = lockedGyroMax = 0;
+}
+
+void initLockedGyro() {
+    imu.begin();
+    imu.setClock(100000);
+    for (uint8_t address = 0x68; address <= 0x69; ++address) {
+        uint8_t who = 0;
+        if (readRegs(imu, address, 0x75, &who, 1)) {
+            lockedWho = who;
+            imuAddress = address;
+            break;
+        }
+    }
+    if (lockedWho != 0x68 && lockedWho != 0x70) {
+        lockedGyroState = lockedWho < 0 ? "NO_ID" : "UNSUPPORTED_ID";
+        return;
+    }
+    // Diagnostic-only profile: +/-1000 dps, 100 Hz, DLPF=3, data-ready flag.
+    if (!writeReg(imu, imuAddress, 0x6B, 1) ||
+        !writeReg(imu, imuAddress, 0x6C, 0) ||
+        !writeReg(imu, imuAddress, 0x19, 9) ||
+        !writeReg(imu, imuAddress, 0x1A, 3) ||
+        !writeReg(imu, imuAddress, 0x1B, 0x10) ||
+        !writeReg(imu, imuAddress, 0x38, 1)) {
+        lockedGyroState = "CONFIG";
+        return;
+    }
+    uint8_t config[3] = {}, power = 0;
+    if (!readRegs(imu, imuAddress, 0x19, config, sizeof(config)) ||
+        !readRegs(imu, imuAddress, 0x6B, &power, 1) ||
+        config[0] != 9 || config[1] != 3 || config[2] != 0x10 ||
+        (power & 0x7f) != 1) {
+        lockedGyroState = "CONFIG";
+        return;
+    }
+    lockedImuReady = true;
+    lockedGyroReadyAt = millis() + 2000;
+    lockedGyroState = "WARMUP";
+}
+
+void pollLockedGyro(uint32_t now) {
+    if (!lockedImuReady) return;
+    if (int32_t(now - lockedGyroReadyAt) < 0) return;
+    static uint32_t lastProbe = 0;
+    if (now - lastProbe < 2) return;
+    lastProbe = now;
+    uint8_t status = 0, bytes[2] = {};
+    if (!readRegs(imu, imuAddress, 0x3A, &status, 1)) {
+        lockedGyroState = "I2C";
+        lockedGyroFresh = false;
+        if (!lockedBiasReady) resetLockedGyroWindow();
+        return;
+    }
+    if (!(status & 1)) {
+        if (now - lockedLastGyroAt > 100) {
+            lockedGyroState = "STALE";
+            lockedGyroFresh = false;
+        }
+        return;
+    }
+    if (!readRegs(imu, imuAddress, 0x47, bytes, sizeof(bytes))) {
+        lockedGyroState = "I2C";
+        lockedGyroFresh = false;
+        if (!lockedBiasReady) resetLockedGyroWindow();
+        return;
+    }
+    const int16_t raw = int16_t((uint16_t(bytes[0]) << 8) | bytes[1]);
+    const bool gap = lockedLastGyroAt && now - lockedLastGyroAt > 50;
+    lockedLastGyroAt = now;
+    lockedGyroRaw = raw;
+    lockedGyroFresh = true;
+    if (raw >= 32760 || raw <= -32760) {
+        lockedGyroState = "SATURATED";
+        lockedGyroFresh = false;
+        if (!lockedBiasReady) resetLockedGyroWindow();
+        return;
+    }
+    if (lockedBiasReady) {
+        lockedGyroState = "BIAS_CANDIDATE";
+        return;
+    }
+    if (gap || now - lockedLastWheelMotionAt < 500 || raw > 328 || raw < -328) {
+        resetLockedGyroWindow();
+        lockedGyroState = gap ? "SAMPLE_GAP" : "MOVING";
+        return;
+    }
+    if (!lockedBiasSamples) lockedGyroMin = lockedGyroMax = raw;
+    if (raw < lockedGyroMin) lockedGyroMin = raw;
+    if (raw > lockedGyroMax) lockedGyroMax = raw;
+    if (int(lockedGyroMax) - int(lockedGyroMin) > 65) {
+        resetLockedGyroWindow();
+        lockedGyroState = "MOVING";
+        return;
+    }
+    lockedGyroSum += raw; // 500 * int16_t fits int32_t.
+    if (++lockedBiasSamples == 500) {
+        lockedGyroBiasRaw = float(lockedGyroSum) / 500;
+        lockedBiasReady = true;
+        lockedGyroState = "BIAS_CANDIDATE";
+    } else lockedGyroState = "COLLECTING";
+}
+
 void zeroLockedEncoders() {
     lastCount[0] = uint16_t(TIM3->CNT);
     lastCount[1] = uint16_t(TIM2->CNT);
@@ -827,6 +940,18 @@ void printLockedTelemetry() {
     Serial.print(" MPU_WHO=");
     if (lockedWho < 0) Serial.print("NA");
     else { Serial.print("0x"); Serial.print(lockedWho, HEX); }
+    Serial.print(" GYRO="); Serial.print(lockedGyroState);
+    Serial.print(" GZ_RAW=");
+    if (lockedLastGyroAt) Serial.print(lockedGyroRaw);
+    else Serial.print("NA");
+    Serial.print(" BIAS_N="); Serial.print(lockedBiasSamples);
+    if (lockedBiasReady) {
+        Serial.print(" BIAS_CANDIDATE_RAW="); Serial.print(lockedGyroBiasRaw, 2);
+        Serial.print(" GZ_DPS=");
+        if (now - lockedLastGyroAt < 100 && lockedGyroFresh)
+            Serial.print((lockedGyroRaw - lockedGyroBiasRaw) / 32.8f, 2);
+        else Serial.print("NA");
+    }
     Serial.print(" VL_INIT="); Serial.print(sensorsReady ? "OK" : "FAIL");
     if (!sensorsReady) {
         Serial.print(" VL_FAIL=");
@@ -874,15 +999,8 @@ void setup() {
 #if !ONE_RUN_CALIBRATED
     disableMotors();
     initEncoders();
-    imu.begin();
-    imu.setClock(100000);
-    for (uint8_t address = 0x68; address <= 0x69; ++address) {
-        uint8_t who = 0;
-        if (readRegs(imu, address, 0x75, &who, 1)) {
-            lockedWho = who;
-            break;
-        }
-    }
+    lockedLastWheelMotionAt = millis();
+    initLockedGyro();
     sensorsReady = initSensors(&lockedVlFailed, &lockedVlStage);
     Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status Z=zero_ticks");
     printLockedTelemetry();
@@ -908,9 +1026,12 @@ void loop() {
         static uint32_t lastEncoderSample = 0, lastPoll = 0, lastReport = 0;
         if (now - lastEncoderSample >= 20) {
             lastEncoderSample = now;
-            lockedLeftTicks += readCount(0, TIM3);
-            lockedRightTicks += readCount(1, TIM2);
+            const int32_t left = readCount(0, TIM3), right = readCount(1, TIM2);
+            lockedLeftTicks += left;
+            lockedRightTicks += right;
+            if (left || right) lockedLastWheelMotionAt = now;
         }
+        pollLockedGyro(now);
         static uint8_t nextSensor = 0;
         if (sensorsReady && now - lastPoll >= 2) {
             lastPoll = now;
