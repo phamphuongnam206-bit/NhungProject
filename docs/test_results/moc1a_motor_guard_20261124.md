@@ -30,7 +30,9 @@ Sau các lượt đầu, SWD báo `paused=1`, `fault=null`, PB0 ODR/IDR bit 0 = 
 
 Người dùng ngắt nguồn và kiểm tra/cắm lại riêng J12, sau đó xác nhận bánh kê và pin VM cắm. Mốc TIM2 khi đứng yên là 726 và giữ nguyên sau 2 giây. Hai lượt `MOTOR R 80 1200` lặp lại có `COUNTS_R=2997` và `3076`, `COUNTS_L=0`; RAW_R sau khởi động duy trì khoảng 2500–2650 counts/s, `FAULT=NONE`, `MOTOR_DONE`, `PAUSED`. Chênh tổng count khoảng 2,6%; hiện tượng mất xung trước đó **không tái hiện ở hai lượt này**. Không thể khẳng định nguyên nhân là tiếp xúc J12 nếu chưa có phép đo riêng từng tiếp điểm.
 
-Thử dừng giữa lượt: gửi `MOTOR R 80 800`, sau khoảng 250 ms gửi `STOP`. UART nhận `MOTOR_START`, hai dòng TRACE tại 107/209 ms và `PAUSED`, không có `MOTOR_DONE`; SWD sau đó báo PB0 LOW, `paused=1`, `fault=null`. Người dùng quan sát bánh phải dừng ngay. **PASS bước đầu cho STOP chủ động và motor J12 trên giá kê.** Chưa đo độ trễ STBY bằng oscilloscope, chưa thử đảo chiều, chưa kích hoạt lỗi mất xung liên tục, chưa chạy PI hoặc bánh có tải trên mặt đất. Điện áp định mức motor vẫn chưa biết; không suy diễn an toàn vận hành lâu dài từ các lượt ngắn.
+Thử dừng giữa lượt: gửi `MOTOR R 80 800`, sau khoảng 250 ms gửi `STOP`. UART nhận `MOTOR_START`, hai dòng TRACE tại 107/209 ms và `PAUSED`, không có `MOTOR_DONE`; SWD sau đó báo PB0 LOW, `paused=1`, `fault=null`. Người dùng quan sát bánh phải dừng ngay. **PASS bước đầu cho STOP chủ động và motor J12 trên giá kê.**
+
+Thử đảo chiều khi bánh đã dừng: `MOTOR R -80 1200` cho `COUNTS_R=-2971`, `COUNTS_L=0`, RAW_R ổn định khoảng −2450 đến −2600 counts/s; `MOTOR L -80 1200` cho `COUNTS_L=+2982`, `COUNTS_R=0`, RAW_L (đã nhân dấu tiến) ổn định khoảng −2440 đến −2625 counts/s. Cả hai lệnh có `MOTOR_DONE`, `FAULT=NONE`, `PAUSED`; SWD sau lượt cuối PB0 LOW, `paused=1`, `fault=null`. **PASS bước đầu về PWM đơn bánh, dấu encoder đúng khi đảo chiều và dừng theo thời gian.** Chưa đo độ trễ STBY bằng oscilloscope, chưa kích hoạt lỗi mất xung liên tục, chưa chạy PI hoặc bánh có tải trên mặt đất. Điện áp định mức motor vẫn chưa biết; không suy diễn an toàn vận hành lâu dài từ các lượt ngắn.
 
 ## Điều kiện kiểm thử phần cứng sau này
 
