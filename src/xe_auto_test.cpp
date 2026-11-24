@@ -451,6 +451,10 @@ volatile bool guardControlLate = false;
 const char *firstDriveStop = nullptr;
 volatile uint32_t guardControlAt = 0, guardSampleAt = 0;
 Launch launch;
+#if !ONE_RUN_CALIBRATED
+int32_t lockedLeftTicks = 0, lockedRightTicks = 0;
+int lockedWho = -1;
+#endif
 
 struct Wheel {
     float cps = 0, integral = 0, pwm = 0;
@@ -800,6 +804,29 @@ void printStatus() {
     }
 }
 
+#if !ONE_RUN_CALIBRATED
+void printLockedTelemetry() {
+    const uint32_t now = millis();
+    Serial.print("ONE_RUN_LOCKED TIM3_L="); Serial.print(lockedLeftTicks);
+    Serial.print(" TIM2_R="); Serial.print(lockedRightTicks);
+    Serial.print(" MPU_WHO=");
+    if (lockedWho < 0) Serial.print("NA");
+    else { Serial.print("0x"); Serial.print(lockedWho, HEX); }
+    Serial.print(" VL_INIT="); Serial.print(sensorsReady ? "OK" : "FAIL");
+    for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+        const auto &range = scan.ranges[i];
+        Serial.print(" J"); Serial.print(8 + i); Serial.print('=');
+        const bool fresh = sensorsReady && !range.rejected && range.count &&
+                           now - range.sampledAt < FRAME_AGE_MS;
+        Serial.print(fresh ? int(range.raw) : -1);
+        Serial.print('/');
+        Serial.print(!sensorsReady ? "INIT_FAIL" :
+                     range.problem ? range.problem : fresh ? "OK" : "STALE");
+    }
+    Serial.println();
+}
+#endif
+
 } // namespace AutoTest
 
 void setup() {
@@ -824,7 +851,19 @@ void setup() {
     Serial.begin(38400, SERIAL_8N1);
 #if !ONE_RUN_CALIBRATED
     disableMotors();
-    Serial.println("ONE_RUN_LOCKED NEEDS_MEASUREMENT");
+    initEncoders();
+    imu.begin();
+    imu.setClock(100000);
+    for (uint8_t address = 0x68; address <= 0x69; ++address) {
+        uint8_t who = 0;
+        if (readRegs(imu, address, 0x75, &who, 1)) {
+            lockedWho = who;
+            break;
+        }
+    }
+    sensorsReady = initSensors();
+    Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status");
+    printLockedTelemetry();
     return;
 #endif
     initEncoders();
@@ -841,8 +880,30 @@ void setup() {
 void loop() {
     using namespace AutoTest;
 #if !ONE_RUN_CALIBRATED
-    disableMotors();
-    return;
+    {
+        GPIOB->BRR = 1U; // PB0/STBY stays LOW; motor-control code is unreachable.
+        const uint32_t now = millis();
+        static uint32_t lastEncoderSample = 0, lastPoll = 0, lastReport = 0;
+        if (now - lastEncoderSample >= 20) {
+            lastEncoderSample = now;
+            lockedLeftTicks += readCount(0, TIM3);
+            lockedRightTicks += readCount(1, TIM2);
+        }
+        static uint8_t nextSensor = 0;
+        if (sensorsReady && now - lastPoll >= 2) {
+            lastPoll = now;
+            pollSensor(nextSensor);
+            nextSensor = (nextSensor + 1) % SENSOR_COUNT;
+        }
+        bool report = false;
+        for (uint8_t i = 0; i < 8 && Serial.available(); ++i)
+            if (Serial.read() == '?') report = true;
+        if (report || now - lastReport >= 1000) {
+            lastReport = now;
+            printLockedTelemetry();
+        }
+        return;
+    }
 #endif
     for (uint8_t i = 0; i < 8 && Serial.available(); ++i) {
         const int command = Serial.read();
