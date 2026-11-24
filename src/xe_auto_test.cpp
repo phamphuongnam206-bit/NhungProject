@@ -463,6 +463,8 @@ uint16_t lockedBiasSamples = 0;
 int16_t lockedGyroRaw = 0, lockedGyroMin = 0, lockedGyroMax = 0;
 int32_t lockedGyroSum = 0;
 float lockedGyroBiasRaw = 0;
+float lockedYawDeg = 0, lockedPreviousDps = 0;
+bool lockedYawValid = false, lockedYawSeeded = false;
 #endif
 
 struct Wheel {
@@ -875,34 +877,51 @@ void pollLockedGyro(uint32_t now) {
     if (!readRegs(imu, imuAddress, 0x3A, &status, 1)) {
         lockedGyroState = "I2C";
         lockedGyroFresh = false;
+        lockedYawValid = false;
         if (!lockedBiasReady) resetLockedGyroWindow();
         return;
     }
     if (!(status & 1)) {
-        if (now - lockedLastGyroAt > 100) {
+        if (now - lockedLastGyroAt > 50) {
             lockedGyroState = "STALE";
             lockedGyroFresh = false;
+            lockedYawValid = false;
         }
         return;
     }
     if (!readRegs(imu, imuAddress, 0x47, bytes, sizeof(bytes))) {
         lockedGyroState = "I2C";
         lockedGyroFresh = false;
+        lockedYawValid = false;
         if (!lockedBiasReady) resetLockedGyroWindow();
         return;
     }
     const int16_t raw = int16_t((uint16_t(bytes[0]) << 8) | bytes[1]);
-    const bool gap = lockedLastGyroAt && now - lockedLastGyroAt > 50;
+    const uint32_t dtMs = now - lockedLastGyroAt;
+    const bool gap = lockedLastGyroAt && dtMs > 50;
     lockedLastGyroAt = now;
     lockedGyroRaw = raw;
     lockedGyroFresh = true;
     if (raw >= 32760 || raw <= -32760) {
         lockedGyroState = "SATURATED";
         lockedGyroFresh = false;
+        lockedYawValid = false;
         if (!lockedBiasReady) resetLockedGyroWindow();
         return;
     }
     if (lockedBiasReady) {
+        if (gap || !dtMs) lockedYawValid = false;
+        const float dps = (raw - lockedGyroBiasRaw) / 32.8f;
+        if (lockedYawValid) {
+            if (lockedYawSeeded) {
+                const float next = lockedYawDeg +
+                    0.5f * (lockedPreviousDps + dps) * (dtMs * 0.001f);
+                if (isfinite(next)) lockedYawDeg = next;
+                else lockedYawValid = false;
+            }
+            lockedPreviousDps = dps;
+            lockedYawSeeded = true;
+        }
         lockedGyroState = "BIAS_CANDIDATE";
         return;
     }
@@ -945,6 +964,9 @@ void printLockedTelemetry() {
     if (lockedLastGyroAt) Serial.print(lockedGyroRaw);
     else Serial.print("NA");
     Serial.print(" BIAS_N="); Serial.print(lockedBiasSamples);
+    Serial.print(" YAW_DEG="); Serial.print(lockedYawDeg, 2);
+    Serial.print(" YAW_VALID=");
+    Serial.print(lockedYawValid && now - lockedLastGyroAt <= 50 ? 1 : 0);
     if (lockedBiasReady) {
         Serial.print(" BIAS_CANDIDATE_RAW="); Serial.print(lockedGyroBiasRaw, 2);
         Serial.print(" GZ_DPS=");
@@ -1002,7 +1024,7 @@ void setup() {
     lockedLastWheelMotionAt = millis();
     initLockedGyro();
     sensorsReady = initSensors(&lockedVlFailed, &lockedVlStage);
-    Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status Z=zero_ticks");
+    Serial.println("ONE_RUN_LOCKED TELEMETRY ?=status Z=zero_ticks Y=zero_yaw");
     printLockedTelemetry();
     return;
 #endif
@@ -1042,6 +1064,17 @@ void loop() {
         for (uint8_t i = 0; i < 8 && Serial.available(); ++i) {
             const int command = Serial.read();
             if (command == '?') report = true;
+            if (command == 'Y' || command == 'y') {
+                const uint32_t commandAt = millis();
+                if (lockedBiasReady && lockedGyroFresh &&
+                    commandAt - lockedLastGyroAt <= 50) {
+                    lockedYawDeg = 0;
+                    lockedYawValid = true;
+                    lockedYawSeeded = false;
+                    Serial.println("YAW_ZERO");
+                } else Serial.println("YAW_ZERO_REJECTED");
+                report = true;
+            }
             if (command == 'Z' || command == 'z') {
                 zeroLockedEncoders();
                 Serial.println("ENC_ZERO");
