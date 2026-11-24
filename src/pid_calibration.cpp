@@ -14,7 +14,7 @@
    TRACE 1 enables time-series logs for fixed-PWM MOTOR; TRACE 0 disables them.
    Compact decimal PI parser, no strtof/scanf float; require PI_SET before SPEED;
    SPEED uses directional measured bench feedforward and floor25; WHEELS RAISED ONLY.
-   MOTOR tests and normal wheel defaults retain their previous behavior.
+   MOTOR/SWEEP stop and latch a fault if a commanded wheel has no encoder pulse for STALL_MS.
    Wheel cpsAt160 updated from measured forward tests; start/run PWM remain provisional.
    Host regression tests only: target build and physical tuning still required.
 */
@@ -1559,12 +1559,16 @@
     int pwmL = 0, pwmR = 0, dir = 1;
     uint8_t step = 0;
     uint32_t stepAt = 0, durationMs = 1500, steadyMs = 0;
+    uint32_t lastPulseL = 0, lastPulseR = 0;
     int32_t countsL = 0, countsR = 0, steadyL = 0, steadyR = 0;
   } motorJob;
   constexpr uint8_t SWEEP_STEPS = 10;  // PWM 40, 50, ... 130
 
   void beginMotorStep(uint32_t now) {
     if (motorJob.sweep) motorJob.pwmL = motorJob.pwmR = motorJob.dir * (40 + 10 * motorJob.step);
+    // Keep the pulse deadline across SWEEP steps; each 800 ms step is shorter than STALL_MS.
+    if (!motorJob.sweep || motorJob.step == 0)
+      motorJob.lastPulseL = motorJob.lastPulseR = now;
     motorJob.stepAt = now; motorJob.steadyMs = 0;
     traceLeft.reset(); traceRight.reset();
     motorJob.countsL = motorJob.countsR = motorJob.steadyL = motorJob.steadyR = 0;
@@ -1598,6 +1602,18 @@
     if (!motorJob.active) { stopOutputs(); return; }
     const uint32_t elapsed = now - motorJob.stepAt;
     motorJob.countsL += deltaLeft; motorJob.countsR += deltaRight;
+    if (motorJob.pwmL && deltaLeft) motorJob.lastPulseL = now;
+    if (motorJob.pwmR && deltaRight) motorJob.lastPulseR = now;
+    const char *noPulse =
+      motorJob.pwmL && now - motorJob.lastPulseL >= STALL_MS ? "STALL_L" :
+      motorJob.pwmR && now - motorJob.lastPulseR >= STALL_MS ? "STALL_R" : nullptr;
+    if (noPulse) {
+      motorJob.active = false; paused = true; mode = Mode::Follow; logging = false;
+      latchFault(noPulse);  // STBY LOW and PWM zero before reporting the fault.
+      clearLog();
+      Serial.print("MOTOR_ABORT FAULT="); Serial.println(noPulse);
+      return;
+    }
     if (elapsed >= motorJob.durationMs / 2) {
       motorJob.steadyL += deltaLeft; motorJob.steadyR += deltaRight; motorJob.steadyMs += controlDt;
     }
