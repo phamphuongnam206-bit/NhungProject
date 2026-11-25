@@ -3,6 +3,14 @@
 #include <VL53L0X.h>
 #include <math.h>
 
+// The link-check environment must never energize the bridge, including braking.
+#ifndef HYBRID_MOTOR_LOCK
+#define HYBRID_MOTOR_LOCK 0
+#endif
+#if HYBRID_MOTOR_LOCK != 0 && HYBRID_MOTOR_LOCK != 1
+#error "HYBRID_MOTOR_LOCK must be 0 or 1"
+#endif
+
 // ============================================================================
 // LUOT 2 V26 - TUYEN 180 x 120 CM - OM CUA TIEN
 // ============================================================================
@@ -265,6 +273,9 @@ void rememberStop(const char *reason) {
 }
 
 void stopMotors(bool brake = false) {
+#if HYBRID_MOTOR_LOCK
+  brake = false;
+#endif
   if (!brake) digitalWrite(STBY_PIN, LOW);
   analogWrite(LEFT_PWM, 0);
   analogWrite(RIGHT_PWM, 0);
@@ -289,6 +300,12 @@ void halt(const char *reason, Fault code) {
 }
 
 void driveWheels(float leftCmS, float rightCmS, float dt) {
+#if HYBRID_MOTOR_LOCK
+  (void)leftCmS; (void)rightCmS; (void)dt;
+  digitalWrite(STBY_PIN, LOW);
+  analogWrite(LEFT_PWM, 0);
+  analogWrite(RIGHT_PWM, 0);
+#else
   const int pwmL = wheelL.drive(leftCmS * MAP_COUNTS_CM_L, 5666.0f, dt);
   const int pwmR = wheelR.drive(rightCmS * MAP_COUNTS_CM_R, 5563.0f, dt);
   digitalWrite(LEFT_IN1, LOW);
@@ -298,6 +315,7 @@ void driveWheels(float leftCmS, float rightCmS, float dt) {
   analogWrite(LEFT_PWM, pwmL);
   analogWrite(RIGHT_PWM, pwmR);
   digitalWrite(STBY_PIN, HIGH);
+#endif
 }
 
 void driveForward(float speed, float curve, float dt) {
@@ -872,7 +890,11 @@ void setup() {
   stopMotors();
   Serial.setRx(PA10); Serial.setTx(PA9);
   Serial.begin(BT_BAUD, SERIAL_8N1);
+#if HYBRID_MOTOR_LOCK
+  Serial.println("HYBRID_LINK_CHECK_ONLY MOTOR_LOCK=1; NO_PLANNER_CONTROL");
+#else
   Serial.println("AUTO_V26_FORWARD_BOOT");
+#endif
   initRoute();
   initHardwareEncoders();
   if (!initArcSensors()) { halt("VL53_INIT_FAIL", Fault::SENSOR); return; }
