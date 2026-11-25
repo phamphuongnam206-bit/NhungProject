@@ -10,11 +10,17 @@
 #if HYBRID_MOTOR_LOCK != 0 && HYBRID_MOTOR_LOCK != 1
 #error "HYBRID_MOTOR_LOCK must be 0 or 1"
 #endif
+#ifndef HYBRID_PLANNER_INPUTS_VERIFIED
+#define HYBRID_PLANNER_INPUTS_VERIFIED 0
+#endif
 #if HYBRID_PLANNER_ROUTE
 #if !HYBRID_MOTOR_LOCK
 #error "Planner route integration is diagnostic only and requires motor lock"
 #endif
 #include "planner_route_view.h"
+#include "planner_runtime.h"
+#include "planner_snapshot.h"
+#include "map_grid.h"
 PlannerRouteTarget plannerRouteTarget{};
 #endif
 
@@ -138,6 +144,7 @@ uint32_t bootResetFlags = 0;
 
 uint16_t prevRawL = 0, prevRawR = 0;
 int32_t totalLeft = 0, totalRight = 0;
+uint32_t lastEncoderSampleMs = 0;
 constexpr uint8_t MPU_ADDR = 0x68;
 bool gyroReady = false;
 float gyroBias = 0, currentYawDeg = 0, yawRateDps = 0;
@@ -157,6 +164,18 @@ uint16_t rangeReadErrors[SENSOR_COUNT] = {};
 uint32_t lastRangePollUs = 0;
 bool frameReady = false;
 uint32_t frameAt = 0;
+
+#if HYBRID_PLANNER_ROUTE
+// The diagnostic build exercises the real sensor/timestamp path while keeping
+// the final pose/map authorization explicit. A route is not armed from a
+// guessed START pose or from the placeholder map.
+PlannerSnapshotLimits plannerSnapshotLimits{100, SENSOR_STALE_MS, FRAME_SKEW_MS};
+bool plannerMapVerified = false;
+bool plannerPoseVerified = false;
+bool plannerRuntimeReady = false;
+uint32_t plannerLastPollMs = 0;
+OneRunStatus plannerStatus = ONE_RUN_STOPPED;
+#endif
 
 void holdLow(uint32_t pin) { digitalWrite(pin, LOW); pinMode(pin, OUTPUT); }
 
@@ -523,6 +542,95 @@ void updatePose(int32_t l, int32_t r) {
   pose.p.y += ds * cosf(avg);
   pose.yaw = yaw;
 }
+
+#if HYBRID_PLANNER_ROUTE
+void initPlannerDiagnosticConfig() {
+  plannerMapVerified = false;
+  plannerPoseVerified = false;
+#if HYBRID_PLANNER_INPUTS_VERIFIED
+  plannerMapVerified = true;
+  plannerPoseVerified = true;
+#endif
+  plannerRuntimeReady = false;
+  plannerStatus = ONE_RUN_STOPPED;
+}
+
+void fillPlannerConfig(OneRunConfig &config) {
+  config = {};
+  config.planner.search = {4U, 2U};
+  config.planner.min_los_clearance_cells = 1U;
+  config.planner.footprint = {HALF_LENGTH / 5.0f, HALF_WIDTH / 5.0f};
+  config.navigation.follower = {5.0f, 20.0f, 0.35f, 5.0f, 20.0f,
+                                3.0f, 8.0f, 20.0f, 2.0f};
+  config.navigation.wheels = {10.0f, 30.0f, 40.0f, 80.0f};
+  config.navigation.safety = {100U, SENSOR_STALE_MS, FRONT_HARD_STOP_MM};
+  config.sensors.min_range_mm = 30U;
+  config.sensors.max_range_mm = RANGE_OPEN_MM;
+  config.sensors.confirmations_required = 2U;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    config.sensors.mounts[i] = {
+      BEAMS[i].forward,
+      -BEAMS[i].right,
+      BEAMS[i].angleDeg * RAD,
+    };
+  }
+  config.replan = {100U, 2U, 2U};
+  // The finish cell is a fixture only until the official map/rule is supplied.
+  config.goal = {1U, 30U};
+  config.inflation_cells = 1U;
+}
+
+bool beginPlannerRuntime() {
+  MapGrid baseMap{};
+  OneRunConfig config{};
+  (void)MapGrid_InitBase(&baseMap);
+  fillPlannerConfig(config);
+  if (!PlannerRuntime_Begin(&baseMap, &config, true, wheelsSettled())) return false;
+  plannerLastPollMs = millis() - 30U;
+  plannerRuntimeReady = true;
+  return true;
+}
+
+void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
+  if (!plannerMapVerified || !plannerPoseVerified) return;
+  if (!plannerRuntimeReady) {
+    if (!beginPlannerRuntime()) {
+      plannerStatus = ONE_RUN_STOPPED;
+      return;
+    }
+  }
+  if (!frameReady || now - plannerLastPollMs < 30U) return;
+
+  PlannerSnapshotSource source{};
+  source.x_cm = pose.p.x;
+  source.y_cm = pose.p.y;
+  source.hybrid_yaw_rad = pose.yaw;
+  source.speed_cm_s = measuredForwardSpeed();
+  source.dt_s = dt;
+  source.now_ms = now;
+  source.encoder_ms = lastEncoderSampleMs;
+  source.gyro_ms = lastGyroGoodMs;
+  source.pose_verified = plannerPoseVerified;
+  source.encoder_valid = true;
+  source.gyro_valid = gyroReady && now - lastGyroGoodMs <= 100U;
+  source.emergency_stop = emergencyStop;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    source.ranges[i] = {frame[i].mm, frame[i].at, vlReady[i] && frame[i].mm != 0U};
+  }
+  OneRunInput snapshot{};
+  plannerLastPollMs = now;
+  if (!PlannerSnapshot_Build(&source, &plannerSnapshotLimits, &snapshot)) {
+    PlannerRuntime_Invalidate();
+    plannerRuntimeReady = false;
+    plannerStatus = ONE_RUN_STOPPED;
+    return;
+  }
+  plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
+  if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE) {
+    plannerRuntimeReady = false;
+  }
+}
+#endif
 
 void initRoute() {
   for (uint8_t i = 1; i < ROUTE_COUNT; ++i) {
@@ -935,6 +1043,8 @@ void setup() {
 #endif
 #if !HYBRID_PLANNER_ROUTE
   initRoute();
+#else
+  initPlannerDiagnosticConfig();
 #endif
   initHardwareEncoders();
   if (!initArcSensors()) { halt("VL53_INIT_FAIL", Fault::SENSOR); return; }
@@ -1035,6 +1145,7 @@ void loop() {
   if (now - lastGyroGoodMs > 100) { halt("MPU_LOST", Fault::MPU); return; }
   int32_t dL, dR;
   updateEncoders(dL, dR);
+  lastEncoderSampleMs = now;
   updatePose(dL, dR);
   if (!wheelL.observe(dL, now, dt, MAP_COUNTS_CM_L)) {
     halt("STALL_OR_DIR_L", Fault::LEFT_WHEEL); return;
@@ -1063,15 +1174,18 @@ void loop() {
     lastPlanMs = now - 30U;
   }
   recordFrame(now);
+  const float frontClearance = min(frame[1].mm, frame[2].mm) * 0.1f;
+  const float motorDt = fminf(dt, 0.025f);
+  const float forwardSpeed = fmaxf(0.0f, measuredForwardSpeed());
+  const bool emergency = frontEmergency(frontClearance, forwardSpeed);
+#if HYBRID_PLANNER_ROUTE
+  pollPlannerRuntime(now, dt, emergency);
+#endif
   if (now - lastPlanMs >= 30) {
     lastPlanMs = now;
     plan = choosePlan(now);
   }
-  const float frontClearance = min(frame[1].mm, frame[2].mm) * 0.1f;
   const bool footprintBlocked = !footprintFree(pose.p.x, pose.p.y, sinYaw, cosYaw, now, false);
-  const float motorDt = fminf(dt, 0.025f);
-  const float forwardSpeed = fmaxf(0.0f, measuredForwardSpeed());
-  const bool emergency = frontEmergency(frontClearance, forwardSpeed);
   Plan motion = plan;
   bool safeArc = slewSafeCurve(motion, forwardSpeed, motorDt, now);
   if (!safeArc && !emergency && !footprintBlocked && lastPlanMs != now) {
