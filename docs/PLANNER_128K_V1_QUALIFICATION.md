@@ -41,6 +41,11 @@ fixture's distances and pose are synthetic source/build checks only.
 
 - `HYBRID_MOTOR_LOCK=1` and `HYBRID_PLANNER_INPUTS_VERIFIED=0`. Compile-time
   checks reject unlocking the planner qualification image. STBY stays LOW.
+- The legacy motor-capable `hybrid_2laps` build has a post-link gate checking
+  that the framework's strong `SysTick_Handler` calls the strong
+  `osSystickHandler` lease hook and that lease arming is linked. The locked
+  planner image intentionally has no motor lease hook. This checks the link,
+  not physical PB0 timing under a blocked I2C bus.
 - START localization from PR #23 only accepts four fresh, valid VL53 readings
   while stationary, and requires a reviewed map, START search bounds, and
   sensor mounts. An ambiguous result cannot authorize a pose.
