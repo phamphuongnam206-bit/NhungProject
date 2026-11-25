@@ -30,6 +30,25 @@ int main() {
   PlannerRouteTarget target{};
   assert(PlannerRoute_Target(OneRunFirmwareMission(),12.5f,12.5f,10,&target));
   assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_OK);
+  assert(PlannerRuntime_PreviewPermitted());
+  input.ranges_ready=1; input.range_poses_ready=1;
+  input.ranges[0]={150,1}; input.range_poses[0]={12.5f,12.5f,0};
+  assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_OK);
+  input.safety.now_ms+=10; input.safety.pose_sample_ms+=10;
+  input.safety.sensor_sample_ms+=10;
+  assert(PlannerRuntime_Poll(&input,true,false)==ONE_RUN_STOPPED);
+  assert(OneRunFirmwareMission()->state==ONE_RUN_REPLAN_STOPPED);
+  assert(!PlannerRuntime_PreviewPermitted());
+  input.ranges_ready=0;
+  assert(PlannerRuntime_Poll(&input,true,false)==ONE_RUN_STOPPED);
+  assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_STOPPED);
+  assert(OneRunFirmwareMission()->state==ONE_RUN_FOLLOWING);
+  assert(OneRunFirmwareMission()->waypoint_count>=2);
+  // Safety pause must retain route even if the new path needs reorientation.
+  input.safety.emergency_stop_requested=1;
+  assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_STOPPED);
+  assert(!PlannerRuntime_PreviewPermitted());
+  assert(OneRunFirmwareMission()->state==ONE_RUN_FOLLOWING);
   assert(PlannerRuntime_Poll(&input,false,true)==ONE_RUN_STOPPED);
   assert(!PlannerRoute_Target(OneRunFirmwareMission(),12.5f,12.5f,10,&target));
   assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_STOPPED);

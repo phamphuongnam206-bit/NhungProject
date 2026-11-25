@@ -594,7 +594,7 @@ void fillPlannerConfig(OneRunConfig &config) {
     config.sensors.mounts[i] = {
       BEAMS[i].forward,
       -BEAMS[i].right,
-      BEAMS[i].angleDeg * RAD,
+      -BEAMS[i].angleDeg * RAD,
     };
   }
   config.replan = {100U, 2U, 2U};
@@ -604,14 +604,9 @@ void fillPlannerConfig(OneRunConfig &config) {
 }
 
 bool beginPlannerRuntime() {
-  MapGrid baseMap{};
-  OneRunConfig config{};
-  (void)MapGrid_InitBase(&baseMap);
-  fillPlannerConfig(config);
-  if (!PlannerRuntime_Begin(&baseMap, &config, true, wheelsSettled())) return false;
-  plannerLastPollMs = millis() - 30U;
-  plannerRuntimeReady = true;
-  return true;
+  // A shared surveyed course map/config provider is still required.
+  // Do not substitute the boundary-only MapGrid_InitBase fixture.
+  return false;
 }
 
 void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
@@ -637,7 +632,9 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   source.encoder_valid = true;
   source.gyro_valid = gyroReady && now - lastGyroGoodMs <= 100U;
   source.emergency_stop = emergencyStop;
-  source.ranges_have_origins = true;
+  // frame.origin/at are captured at result READ, not measurement exposure.
+  // Continuous 20ms ranging requires pose history before timed mapping is safe.
+  source.ranges_have_origins = false;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
     source.ranges[i] = {frame[i].mm, frame[i].at,
                         vlReady[i] && frame[i].mm != 0U,
@@ -654,7 +651,7 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   }
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
   if (plannerStatus == ONE_RUN_COMPLETE) plannerGoalReached = true;
-  if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE) {
+  if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE && plannerStatus != ONE_RUN_STOPPED) {
     PlannerRuntime_Invalidate();
     plannerRuntimeReady = false;
   }
@@ -867,6 +864,9 @@ bool startLineCleared(float sinYaw, float cosYaw) {
 }
 
 Plan choosePlan(uint32_t now) {
+#if HYBRID_PLANNER_ROUTE
+  if (plannerStatus != ONE_RUN_OK || !PlannerRuntime_PreviewPermitted()) return {};
+#endif
 #if HYBRID_PLANNER_ROUTE
   const float look = 11.0f + fminf(4.0f, commandedSpeed * 0.11f);
   if (!PlannerRoute_Target(OneRunFirmwareMission(), pose.p.x, pose.p.y,

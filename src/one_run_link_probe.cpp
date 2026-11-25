@@ -66,3 +66,11 @@ extern "C" void *OneRunFirmwareLinkProbe() {
 extern "C" const OneRunMission *OneRunFirmwareMission() {
   return &one_run_link_storage.mission;
 }
+
+// Preview permission only; never changes the compile-time actuator lock.
+bool PlannerRuntime_PreviewPermitted() {
+  const auto &o = one_run_link_storage.output.preview;
+  return runtimeReady && one_run_link_storage.mission.state == ONE_RUN_FOLLOWING &&
+         o.status == ONE_RUN_OK && o.navigation.safety.motion_permitted != 0 &&
+         o.navigation.safety.reasons == 0;
+}

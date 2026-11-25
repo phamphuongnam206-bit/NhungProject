@@ -28,3 +28,10 @@ with tempfile.TemporaryDirectory(prefix='nhung_runtime_') as folder:
                     str(root/'src/one_run_link_probe.cpp'), str(root/'src/planner_route_view.cpp'),
                     *objects, '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
+    snapshot = Path(folder) / 'snapshot.exe'
+    subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-I' + str(root/'include'), '-I' + str(a.core/'Core/Inc'),
+                    str(root/'tests/planner_snapshot_test.cpp'),
+                    str(root/'src/planner_snapshot.cpp'), *objects,
+                    '-o', str(snapshot)], check=True)
+    subprocess.run([str(snapshot)], check=True)
