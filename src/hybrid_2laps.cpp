@@ -77,7 +77,6 @@ constexpr float MAX_CURVE = 2.0f * MAX_TURN_FRACTION / MAP_TRACK_CM;
 constexpr uint16_t DIAG_AVOID_MM = 90;
 constexpr int MAX_PWM = 140, START_PWM = 78, RUN_PWM = 42;
 constexpr uint32_t STALL_START_MS = 700, STALL_MOVING_MS = 400;
-constexpr uint32_t WHEEL_FAULT_BRAKE_MS = 120;
 constexpr uint32_t SENSOR_STALE_MS = 100;
 constexpr uint32_t SENSOR_RECOVERY_LIMIT_MS = 500;
 constexpr uint32_t SENSOR_REINIT_DELAY_MS = 250;
@@ -87,6 +86,10 @@ constexpr uint32_t SENSOR_SLOW_AGE_MS = 60;
 constexpr uint32_t CLEAR_BEFORE_RESTART_MS = 100;
 constexpr uint32_t WATCHDOG_TIMEOUT_US = 4000000UL;
 constexpr uint32_t CONTROL_LOOP_TIMEOUT_MS = 150;
+constexpr uint32_t DRIVE_STBY_LEASE_MS = 80;
+constexpr uint32_t BRAKE_STBY_LEASE_MS = 120;
+static_assert(DRIVE_STBY_LEASE_MS < CONTROL_LOOP_TIMEOUT_MS,
+              "STBY lease must expire before main-loop timeout");
 constexpr uint32_t WATCHDOG_RELOAD = static_cast<uint32_t>(
     (40000ULL * WATCHDOG_TIMEOUT_US / 1000000ULL / 64ULL) - 1ULL);
 static_assert(WATCHDOG_RELOAD <= 0x0FFFU, "IWDG reload must fit STM32F1");
@@ -322,6 +325,40 @@ struct StopReport {
 };
 StopReport lastStop;
 
+#if !HYBRID_MOTOR_LOCK
+// SysTick runs even if the main loop is blocked inside an I2C transaction.
+// Only PB0 is touched in the interrupt; PWM is cleared by the normal fault path.
+volatile uint32_t motorLeaseAtMs = 0;
+volatile uint8_t motorLeaseMode = 0; // 0=off, 1=drive, 2=short brake
+volatile uint8_t motorLeaseExpired = 0;
+bool brakeEpisodeActive = false;
+
+extern "C" void osSystickHandler(void) {
+  const uint8_t mode = motorLeaseMode;
+  if (mode == 0U) return;
+  const uint32_t limit = mode == 1U ? DRIVE_STBY_LEASE_MS : BRAKE_STBY_LEASE_MS;
+  if (uint32_t(HAL_GetTick() - motorLeaseAtMs) >= limit) {
+    GPIOB->BRR = 1U; // PB0/STBY LOW, direct register write from ISR.
+    motorLeaseMode = 0U;
+    if (mode == 1U) motorLeaseExpired = 1U;
+  }
+}
+
+void armMotorLease(uint8_t mode) {
+  const uint32_t wasMasked = __get_PRIMASK();
+  __disable_irq();
+  if (motorLeaseExpired) {
+    GPIOB->BRR = 1U;
+    if (!wasMasked) __enable_irq();
+    return;
+  }
+  motorLeaseAtMs = HAL_GetTick();
+  motorLeaseMode = mode;
+  digitalWrite(STBY_PIN, HIGH);
+  if (!wasMasked) __enable_irq();
+}
+#endif
+
 void initWatchdog() {
   // STM32F1 IWDG: /64, reload 2499 gives about 4 s at the nominal 40 kHz LSI.
   IWDG->KR = 0xCCCCU;
@@ -356,6 +393,11 @@ void rememberStop(const char *reason) {
 void stopMotors(bool brake = false) {
 #if HYBRID_MOTOR_LOCK
   brake = false;
+#else
+  if (!brake) {
+    brakeEpisodeActive = false;
+    motorLeaseMode = 0U;
+  }
 #endif
   if (!brake) digitalWrite(STBY_PIN, LOW);
   analogWrite(LEFT_PWM, 0);
@@ -363,7 +405,16 @@ void stopMotors(bool brake = false) {
   const PinStatus input = brake ? HIGH : LOW;
   digitalWrite(LEFT_IN1, input); digitalWrite(LEFT_IN2, input);
   digitalWrite(RIGHT_IN1, input); digitalWrite(RIGHT_IN2, input);
-  if (brake) digitalWrite(STBY_PIN, HIGH);
+  if (brake) {
+#if !HYBRID_MOTOR_LOCK
+    if (!brakeEpisodeActive) {
+      brakeEpisodeActive = true;
+      armMotorLease(2U);
+    } else if (motorLeaseMode != 2U) {
+      digitalWrite(STBY_PIN, LOW);
+    }
+#endif
+  }
   wheelL.reset();
   wheelR.reset();
   commandedSpeed = 0;
@@ -372,7 +423,11 @@ void stopMotors(bool brake = false) {
 
 void halt(const char *reason, Fault code) {
   rememberStop(reason);
+#if HYBRID_MOTOR_LOCK
   stopMotors(mode == RunMode::AUTO_RUN);
+#else
+  stopMotors(mode == RunMode::AUTO_RUN && !motorLeaseExpired);
+#endif
   status = reason;
   mode = code == Fault::NONE ? RunMode::FINISHED : RunMode::LOCKED;
   fault = code;
@@ -389,6 +444,7 @@ void driveWheels(float leftCmS, float rightCmS, float dt) {
   analogWrite(LEFT_PWM, 0);
   analogWrite(RIGHT_PWM, 0);
 #else
+  brakeEpisodeActive = false;
   const int pwmL = wheelL.drive(leftCmS * MAP_COUNTS_CM_L, 5666.0f, dt);
   const int pwmR = wheelR.drive(rightCmS * MAP_COUNTS_CM_R, 5563.0f, dt);
   digitalWrite(LEFT_IN1, LOW);
@@ -397,7 +453,7 @@ void driveWheels(float leftCmS, float rightCmS, float dt) {
   digitalWrite(RIGHT_IN2, LOW);
   analogWrite(LEFT_PWM, pwmL);
   analogWrite(RIGHT_PWM, pwmR);
-  digitalWrite(STBY_PIN, HIGH);
+  armMotorLease(1U);
 #endif
 }
 
@@ -1258,8 +1314,7 @@ void loop() {
 #endif
   if (mode == RunMode::LOCKED || mode == RunMode::FINISHED) {
     const uint32_t now = millis();
-    if ((fault == Fault::LEFT_WHEEL || fault == Fault::RIGHT_WHEEL) &&
-        now - stoppedAt >= WHEEL_FAULT_BRAKE_MS) {
+    if (now - stoppedAt >= BRAKE_STBY_LEASE_MS) {
       digitalWrite(STBY_PIN, LOW);
     }
     const uint32_t phase = (now - stoppedAt) % 2500;
@@ -1268,6 +1323,12 @@ void loop() {
     digitalWrite(LED_PIN, blink ? LOW : HIGH);
     return;
   }
+#if !HYBRID_MOTOR_LOCK
+  if (motorLeaseExpired) {
+    halt("MOTOR_LEASE_EXPIRED", Fault::CONTROL);
+    return;
+  }
+#endif
 
   pollRange();
   const uint32_t now = millis();
