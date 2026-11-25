@@ -9,3 +9,5 @@ extern "C" bool PlannerRuntime_Begin(const MapGrid *map, const OneRunConfig *con
 extern "C" OneRunStatus PlannerRuntime_Poll(const OneRunInput *snapshot,
                                             bool global_pose_verified, bool stopped);
 extern "C" void PlannerRuntime_Invalidate();
+
+extern "C" bool PlannerRuntime_PreviewPermitted();

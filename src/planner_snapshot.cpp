@@ -22,6 +22,8 @@ extern "C" bool PlannerSnapshot_Build(const PlannerSnapshotSource *s,
     if (!range.valid || range.mm == 0 || age > limits->range_age_ms) return false;
     if (age > oldest) oldest = age;
     if (age < newest) newest = age;
+    if (s->ranges_have_origins && (!isfinite(range.x_cm) ||
+        !isfinite(range.y_cm) || !isfinite(range.hybrid_yaw_rad))) return false;
   }
   if (oldest - newest > limits->frame_skew_ms) return false;
   output->pose = {s->x_cm, s->y_cm,
@@ -36,6 +38,8 @@ extern "C" bool PlannerSnapshot_Build(const PlannerSnapshotSource *s,
   output->safety.control_deadline_ok = 1;
   output->safety.emergency_stop_requested = s->emergency_stop ? 1 : 0;
   output->safety.front_min_mm = s->ranges[1].mm < s->ranges[2].mm ? s->ranges[1].mm : s->ranges[2].mm;
+  for (unsigned i = 0; i < 4; ++i)
+    output->ranges[i] = {s->ranges[i].mm, uint8_t(s->ranges[i].valid)};
   if (s->ranges_have_origins) {
     for (unsigned i = 0; i < 4; ++i) {
       const PlannerTimedRange &range = s->ranges[i];
