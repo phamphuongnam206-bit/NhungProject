@@ -42,8 +42,7 @@ V1 needs separate guarded states before motor unlock:
 image**. The 128 KiB image now waits for a stable PB1 release followed by a
 fresh 30 ms press before attempting planner control. PB1 is the reviewed PCB
 mode-button input with pull-up; this is a software start gate, not START_ENTRY.
-Its
-planner GOAL gate remains unverified and prevents acceptance. The host GOAL
+Its planner GOAL gate remains unverified and prevents acceptance. The host GOAL
 geometry test covers whole-body crossing only; it does not prove the vehicle
 can reach or brake after the line. The current `HALF_LENGTH=6.8` and
 `HALF_WIDTH=5.8` are conservative collision envelopes, not measured body
@@ -66,6 +65,14 @@ The farther cell is a host fixture, not an operational START waypoint. This
 proves only that the interior course segment has a valid nominal path. The
 full START_ENTRY from behind the line and GOAL_EXIT beyond it remain untested;
 motor lock stays on. Do not remove footprint checks to force a direct route.
+
+The apparent straight corridors have almost no surveyed tolerance. At
+X=42.5 cm through T2/T3/T4 and X=162.5 cm beside T17, the nominal lateral
+gap after the current 5.8 cm half-width envelope and 1.5 cm obstacle margin
+is only `7.5 - 5.8 - 1.5 = 0.2 cm`. This is a calculation from diagram
+coordinates, not a measured safety margin. A small position or body-width
+error can erase it. START_ENTRY and GOAL_EXIT therefore need measured body
+dimensions and obstacle positions before a motion state is authorized.
 
 `pc_sim/mapping.py` is a legacy 13-block simulation with guessed random
 locations; it is not the V1 course source. The JSON fixture above records the
