@@ -88,14 +88,20 @@ fixture's distances and pose are synthetic source/build checks only.
 - The nominal 17-obstacle C11 A* topology test finds a route. The
   full-footprint policy rejects the near-line start as `PLANNER_UNSAFE_TURN`,
   but passes from a farther interior fixture at (42.5,52.5) cm. The
-  START_ENTRY segment needed to reach that area is not qualified, so the
-  whole run remains an open V1 safety blocker. The 128 KiB runtime now has a
+  START_ENTRY segment needed to reach that area is not qualified on hardware,
+  so the whole run remains an open V1 safety blocker. The 128 KiB runtime has a
   START handoff guard: the surveyed start region must be verified, the full
   13 x 10 cm body must be inside the x=0..60 cm gate and past y=0, yaw must
   face +Y within the reviewed tolerance, pose/ranges must be fresh, wheels
   must be stopped, and the current footprint must pass local collision checks.
-  This guard does not supply a path or drive the car from behind the line;
-  START_ENTRY motion remains unimplemented. On planner COMPLETE,
+  A straight START_ENTRY controller now requires a confidently localized pose
+  with the full 13 x 10 cm body behind the start line, reviewed calibration,
+  a clear fixed/live obstacle corridor, fresh sensors and forward progress.
+  It brakes before the interior handoff, checks the full footprint and then
+  lets the existing guard start A*. Its Flash-resident target Y, brake overrun,
+  speed and time limits remain zero (`NEEDS_MEASUREMENT`), so no START motion
+  is authorized in this image. START and GOAL share one 24-byte state object
+  to keep the 4 KiB RAM reserve. On planner COMPLETE,
   the 128 KiB firmware stops, waits for quiet encoder pulses, and calls the
   GOAL_EXIT corridor checker over the fixed map and live obstacle hits. It
   distinguishes missing measurements, unsettled sensors and blocked geometry.

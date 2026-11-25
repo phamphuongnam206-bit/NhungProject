@@ -2,16 +2,18 @@
 #include "planner_goal_exit.h"
 #include <stdint.h>
 
-enum class PlannerGoalExitPhase : uint8_t { IDLE, DRIVE, BRAKE, COMPLETE, FAULT };
+enum class PlannerBoundaryPhase : uint8_t { IDLE, DRIVE, BRAKE, COMPLETE, FAULT };
+using PlannerGoalExitPhase = PlannerBoundaryPhase;
 
-struct PlannerGoalExitMotion {
-  PlannerGoalExitPhase phase = PlannerGoalExitPhase::IDLE;
+struct PlannerBoundaryMotion {
+  PlannerBoundaryPhase phase = PlannerBoundaryPhase::IDLE;
   uint32_t started_ms = 0;
   uint32_t brake_ms = 0;
   float start_y_cm = 0;
   float last_y_cm = 0;
   uint32_t last_progress_ms = 0;
 };
+using PlannerGoalExitMotion = PlannerBoundaryMotion;
 
 struct PlannerGoalExitMotionConfig {
   PlannerGoalExitConfig corridor{};

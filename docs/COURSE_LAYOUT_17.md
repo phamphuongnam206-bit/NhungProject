@@ -38,7 +38,16 @@ V1 needs separate guarded states before motor unlock:
    `y + projected_half_length < 0` and the whole body between X=120..180,
    then require stopped encoder pulses before `FINISHED`.
 
-`START_ENTRY` motion is **not implemented in the current locked image**.
+`START_ENTRY` now has a straight, surveyed-pose motion controller in the
+128 KiB image. It requires the entire body behind y=0 at start, checks the
+x=0..60 gate, fixed and live obstacle corridor, heading, fresh pose/ranges,
+forward progress and a measured brake envelope. After the body is inside and
+encoder pulses settle, the existing handoff guard must pass before A* begins.
+The Flash-resident target Y, brake runout, speed and time limits remain zero
+(`NEEDS_MEASUREMENT`), so the current locked image cannot command this motion.
+The 24-byte START/GOAL motion state is shared because these phases cannot
+overlap. The 17-block host fixture uses synthetic geometry, not PCB evidence.
+
 `PlannerGoalExit_CorridorClear` checks a straight exit from a verified
 interior pose, the full body across y=0, a reviewed brake runout and
  intersections with fixed or dynamic obstacles. The 128 KiB firmware calls it

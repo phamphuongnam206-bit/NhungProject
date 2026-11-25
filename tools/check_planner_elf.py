@@ -54,7 +54,7 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
         missing.update({"NavBoot_Estimate", "StartLocalization_Estimate"} - names)
         demangled = subprocess.check_output(
             [tool("nm"), "-S", "-C", "--defined-only", str(elf)], text=True)
-        for calibration_name in ("goalExitMeasurements",
+        for calibration_name in ("goalExitMeasurements", "startEntryMeasurements",
                                  "MapOneRunCalibration::candidate"):
             calibration = next((line.split() for line in demangled.splitlines()
                                 if line.split() and line.split()[-1] == calibration_name), None)

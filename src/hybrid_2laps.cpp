@@ -34,6 +34,7 @@
 #include "planner_motion_health.h"
 #include "planner_goal_gate.h"
 #include "planner_start_entry.h"
+#include "planner_start_entry_motion.h"
 #include "planner_goal_exit.h"
 #include "planner_goal_exit_motion.h"
 #include "map_one_run_calibration.h"
@@ -219,7 +220,13 @@ struct GoalExitMeasurements {
   uint32_t timeoutMs, stallMs;
 };
 const GoalExitMeasurements goalExitMeasurements{0.0f, 0.0f, 0.0f, 0.0f, 0U, 0U};
-PlannerGoalExitMotion goalExitMotion{};
+struct StartEntryMeasurements {
+  float terminalCenterYcm, brakeOverrunCm, speedCmS, progressEpsilonCm;
+  uint32_t timeoutMs, stallMs;
+};
+const StartEntryMeasurements startEntryMeasurements{0.0f, 0.0f, 0.0f, 0.0f, 0U, 0U};
+// START and GOAL cannot overlap; share the 24-byte boundary state in SRAM.
+PlannerBoundaryMotion boundaryMotion{};
 float gyroMapYawOffsetRad = 0;
 volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
 volatile float startLocalizationMeanErrorCm = 0;
@@ -774,6 +781,8 @@ void initPlannerDiagnosticConfig() {
   startLocalizationCandidates = 0;
   plannerLastPollMs = 0;
   plannerHealth.reset();
+  boundaryMotion = {};
+  leavingStartLine = true;
 #endif
 }
 
@@ -898,9 +907,8 @@ void fillPlannerConfig(OneRunConfig &config) {
 // Defined below with the local-arc collision checks.
 bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkHits);
 
-bool beginPlannerRuntime() {
 #if HYBRID_PLANNER_128K
-  if (!plannerMapVerified || !plannerPoseVerified) return false;
+bool plannerKinematicsReady() {
   const MapOneRunCalibration::PlannerKinematicsExpected expected{
       MAP_COUNTS_CM_L, MAP_COUNTS_CM_R,
       float(LEFT_ENC_DIR), float(RIGHT_ENC_DIR),
@@ -908,7 +916,14 @@ bool beginPlannerRuntime() {
       HALF_WIDTH * 20.0f, YAW_SIGN, BRAKE_DECEL_CM_S2 * 10.0f};
   const volatile MapOneRunCalibration::Calibration &calibration =
       MapOneRunCalibration::candidate;
-  if (!MapOneRunCalibration::PlannerKinematicsReady(calibration, expected)) {
+  return MapOneRunCalibration::PlannerKinematicsReady(calibration, expected);
+}
+#endif
+
+bool beginPlannerRuntime() {
+#if HYBRID_PLANNER_128K
+  if (!plannerMapVerified || !plannerPoseVerified) return false;
+  if (!plannerKinematicsReady()) {
     status = "KINEMATICS_UNVERIFIED";
     return false;
   }
@@ -934,6 +949,8 @@ bool beginPlannerRuntime() {
           wheelsSettled(), footprintFree(pose.p.x, pose.p.y,
               sinf(pose.yaw), cosf(pose.yaw), now, true),
           pose.p.x, pose.p.y, pose.yaw)) return false;
+  if (leavingStartLine || boundaryMotion.phase != PlannerBoundaryPhase::IDLE)
+    return false;
 #else
   if (!plannerMapVerified || !plannerPoseVerified) return false;
 #endif
@@ -1150,6 +1167,52 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
 }
 
 #if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+PlannerStartEntryMotionConfig startEntryMotionConfig() {
+  PlannerStartEntryMotionConfig c{};
+  c.verified = plannerMapVerified && plannerPoseVerified &&
+               startRegion.verified && startMountsVerified &&
+               plannerKinematicsReady();
+  c.gate_xmin_cm = 0.0f;
+  c.gate_xmax_cm = 60.0f;
+  c.line_y_cm = 0.0f;
+  c.outside_ymin_cm = startRegion.ymin;
+  c.half_length_cm = HALF_LENGTH;
+  c.half_width_cm = HALF_WIDTH;
+  c.heading_tolerance_rad = startRegion.headingSpan;
+  const volatile StartEntryMeasurements *measured = &startEntryMeasurements;
+  c.terminal_center_y_cm = measured->terminalCenterYcm;
+  c.brake_overrun_cm = measured->brakeOverrunCm;
+  c.speed_cm_s = measured->speedCmS;
+  c.progress_epsilon_cm = measured->progressEpsilonCm;
+  c.timeout_ms = measured->timeoutMs;
+  c.stall_ms = measured->stallMs;
+  // The lowest allowed stop must satisfy the planner's in-arena footprint.
+  c.verified &= c.terminal_center_y_cm - c.brake_overrun_cm -
+                HALF_LENGTH > MAP_BOTTOM;
+  return c;
+}
+
+bool startEntryPathClear(const PlannerStartEntryMotionConfig &c, uint32_t now) {
+  const auto clearWith = [&](const PlannerGoalExitRect *box, size_t count,
+                             float margin) {
+    return PlannerStartEntryMotion_PathClear(c, pose.p.x, pose.p.y, pose.yaw,
+                                              box, count, margin);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM)) return false;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM)) return false;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f)) return false;
+  }
+  return true;
+}
+
 enum class GoalExitPreflight { CLEAR, WAIT_SENSORS, UNVERIFIED, BLOCKED };
 
 PlannerGoalExitMotionConfig goalExitMotionConfig() {
@@ -1738,23 +1801,88 @@ void loop() {
     return;
   }
 
+#if !HYBRID_PLANNER_ROUTE
   if (leavingStartLine && startLineCleared(sinYaw, cosYaw)) {
     leavingStartLine = false;
     lastPlanMs = now - 30U;
   }
+#endif
   recordFrame(now);
   const float frontClearance = min(frame[1].mm, frame[2].mm) * 0.1f;
   const float motorDt = fminf(dt, 0.025f);
   const float forwardSpeed = fmaxf(0.0f, measuredForwardSpeed());
   const bool emergency = frontEmergency(frontClearance, forwardSpeed);
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  if (leavingStartLine) {
+    attemptStartLocalization(now);
+    plan = {};
+    if (!plannerPoseVerified) {
+      status = "START_LOCALIZING";
+      stopMotors(true);
+      return;
+    }
+    const PlannerStartEntryMotionConfig entry = startEntryMotionConfig();
+    if (!PlannerStartEntryMotion_ConfigReady(entry)) {
+      status = "START_ENTRY_UNVERIFIED";
+      stopMotors(true);
+      return;
+    }
+    const bool poseFresh = gyroReady &&
+        now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+        now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+    bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+    for (uint8_t i = 0; i < SENSOR_COUNT; ++i)
+      rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                     frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+    const bool pathClear = !emergency &&
+        frontSpeedLimit(frontClearance) >= entry.speed_cm_s &&
+        startEntryPathClear(entry, now);
+    if (boundaryMotion.phase == PlannerStartEntryPhase::IDLE) {
+      if (!PlannerStartEntryMotion_Begin(&boundaryMotion, entry, true,
+          poseFresh, rangesFresh, wheelsSettled(), pathClear, now,
+          pose.p.x, pose.p.y, pose.yaw)) {
+        halt("START_ENTRY_POSE_INVALID", Fault::CONTROL);
+        return;
+      }
+      lastPlanMs = now;
+    }
+    if (boundaryMotion.phase == PlannerStartEntryPhase::BRAKE &&
+        (dL != 0 || dR != 0)) lastPlanMs = now;
+    const PlannerStartEntryPhase entryPhase = PlannerStartEntryMotion_Step(
+        &boundaryMotion, entry, now, pose.p.x, pose.p.y, pose.yaw,
+        poseFresh, rangesFresh, pathClear,
+        PlannerGoalPulseQuiet(now, lastPlanMs, 80U) &&
+            wheelsSettled() && dL == 0 && dR == 0);
+    if (entryPhase == PlannerStartEntryPhase::FAULT) {
+      halt("START_ENTRY_FAULT", Fault::CONTROL);
+    } else if (entryPhase == PlannerStartEntryPhase::COMPLETE) {
+      stopMotors(true);
+      if (!footprintFree(pose.p.x, pose.p.y, sinYaw, cosYaw, now, true)) {
+        halt("START_HANDOFF_BLOCKED", Fault::CONTROL);
+        return;
+      }
+      boundaryMotion = {};
+      leavingStartLine = false;
+      status = "START_ENTRY_COMPLETE";
+    } else if (entryPhase == PlannerStartEntryPhase::BRAKE) {
+      if (boundaryMotion.brake_ms == now) lastPlanMs = now;
+      status = "START_ENTRY_BRAKE";
+      stopMotors(true);
+    } else if (entryPhase == PlannerStartEntryPhase::DRIVE) {
+      status = "START_ENTRY_DRIVE";
+      driveForward(entry.speed_cm_s, 0.0f, motorDt);
+    }
+    return;
+  }
+#endif
 #if HYBRID_PLANNER_ROUTE
   pollPlannerRuntime(now, dt, emergency);
   if (mode == RunMode::LOCKED) return;
 #if HYBRID_PLANNER_128K
   if (plannerStatus == ONE_RUN_COMPLETE) {
-    if (goalExitMotion.phase != PlannerGoalExitPhase::IDLE) {
+    if (boundaryMotion.phase != PlannerGoalExitPhase::IDLE) {
       const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
-      if (goalExitMotion.phase == PlannerGoalExitPhase::BRAKE &&
+      if (boundaryMotion.phase == PlannerGoalExitPhase::BRAKE &&
           (dL != 0 || dR != 0)) lastPlanMs = now;
       const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
       const bool poseFresh = plannerPoseVerified && gyroReady &&
@@ -1765,7 +1893,7 @@ void loop() {
         rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
                        frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
       const PlannerGoalExitPhase phase = PlannerGoalExitMotion_Step(
-          &goalExitMotion, motionConfig, now, pose.p.x, pose.p.y, pose.yaw,
+          &boundaryMotion, motionConfig, now, pose.p.x, pose.p.y, pose.yaw,
           poseFresh, rangesFresh,
           !emergency && frontSpeedLimit(frontClearance) >= motionConfig.speed_cm_s &&
               goalExitMovingPathClear(motionConfig, now),
@@ -1777,7 +1905,7 @@ void loop() {
         stopMotors(true);
         halt("FINISH_LINE_PASSED", Fault::NONE);
       } else if (phase == PlannerGoalExitPhase::BRAKE) {
-        if (goalExitMotion.brake_ms == now) lastPlanMs = now;
+        if (boundaryMotion.brake_ms == now) lastPlanMs = now;
         status = "GOAL_EXIT_BRAKE";
         stopMotors(true);
       } else if (phase == PlannerGoalExitPhase::DRIVE) {
@@ -1811,7 +1939,7 @@ void loop() {
       return;
     }
     const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
-    if (!PlannerGoalExitMotion_Begin(&goalExitMotion, motionConfig, true,
+    if (!PlannerGoalExitMotion_Begin(&boundaryMotion, motionConfig, true,
                                      now, pose.p.y)) {
       halt("GOAL_EXIT_UNVERIFIED", Fault::CONTROL);
       return;
@@ -1819,7 +1947,7 @@ void loop() {
     status = "GOAL_EXIT_READY";
     return;
   }
-  if (goalExitMotion.phase != PlannerGoalExitPhase::IDLE) {
+  if (boundaryMotion.phase != PlannerGoalExitPhase::IDLE) {
     halt("GOAL_EXIT_MISSION_LOST", Fault::CONTROL);
     return;
   }
