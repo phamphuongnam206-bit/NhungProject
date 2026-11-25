@@ -2,7 +2,7 @@
 
 ## Repositories and scope
 
-- Firmware HEAD: `refs/heads/codex/planner-128k-v1-20261125` (resolve its current commit with `git rev-parse HEAD`); starting baseline `6789e5b` (working tree was clean before this work). The follow-up commits are `9b811ba`, `fbb3d69` and `3a93f0d`.
+- Firmware HEAD: `refs/heads/codex/planner-128k-v1-20261125` (resolve its current commit with `git rev-parse HEAD`); starting baseline `6789e5b`. Work is reviewed in PR #15.
 - C11 core: `codex/course-reflectors-20261125`, `2454ca8be28c8fedff0204a62e339cdd162d5427` (clean, unchanged).
 - The IDE's `CUOI_KY/NhungProject-main` is an older non-Git copy. All edits are in `D:/prj_Nhung/NhungProject_one_run`.
 - Existing firmware PR: #15. Do not merge to main or change the pinned core without a separate review.
@@ -20,6 +20,7 @@
 - START_ENTRY and GOAL_EXIT swept-corridor checks now include the maximum lateral drift allowed by heading tolerance over the remaining straight travel, plus rotated body extent. The nominal narrow GOAL corridor rejects a synthetic 0.1 rad tolerance; smaller synthetic tolerances can pass. Physical heading stability and straightness remain `NEEDS_MEASUREMENT`.
 - `docs/V1_SWD_WATCH.md` lists symbols confirmed in the locked ARM ELF for pose, mission, targets, encoder, four ranges, safety, faults and DWT timing. It does not add RAM or serial traffic.
 - MPU initialization now reads back filter, sample divider and gyro full-scale registers before accepting samples. The core's archived 1000 dps raw bias is not transferable to the hybrid's 500 dps configuration; the matrix marks that mismatch `CONFLICTING`.
+- The pinned, clean C11 core builds with strict host warnings and passes 12 native unit suites covering map/grid, A*, LOS/smoothing, replan, follower, wheel targets, safety, mission, sensor-map updates and START scan qualification. This validates the selected core algorithms on a host, not the PCB's timing or sensor geometry.
 - Qualification stays `HYBRID_MOTOR_LOCK=1`, `HYBRID_PLANNER_INPUTS_VERIFIED=0`; default environment stays `hybrid_2laps`.
 - `hybrid_v1_staging` is a separate build target inheriting the locked 128 KiB gates and ELF checks. It has no operating authorization; a later reviewed change must supply physical evidence before any unlock.
 
@@ -30,6 +31,7 @@
 | Host C11 runtime, snapshot, START, GOAL, motion health | PASS | Synthetic fixtures; no physical pose or sensor validation |
 | Python course/calibration/Flash-inspection tests | PASS, 13 tests | Offline inputs only |
 | Core repository `pc_sim` unit tests | PASS, 7 tests | Legacy Python simulation, separate from locked firmware |
+| Pinned C11 core algorithm unit suites | PASS, 12 suites | Strict host build of clean core commit `2454ca8`; no PCB timing or motor proof |
 | PowerShell Flash-backup mock | PASS | Verifies two reads, paths with spaces, metadata logs and absence of reset/resume/write commands; no PCB contact |
 | ARM `hybrid_planner_check`, `hybrid_planner_check_128k`, `hybrid_v1_staging` and ELF checker | PASS | Locked images, no Flash write |
 | Flash image span | 76,448 / 130,048 B | ELF load span; PlatformIO reports 76,136 B sections |
