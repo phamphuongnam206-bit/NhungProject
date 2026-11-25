@@ -1,0 +1,72 @@
+# V1 qualification: planner on the reported 128 KiB part
+
+This is a locked qualification image, **not** a firmware approved to drive the
+robot. Do not upload or run it as a motor test. The chip reported 128 KiB and
+the upper addresses were readable over ST-Link, but erase/write/read and
+retention after power loss have not been tested. Keep the 64 KiB build as a
+fallback. Neither build proves the physical Flash above 64 KiB is writable.
+
+## Build and memory
+
+`pio run -e hybrid_planner_check_128k` uses the BluePill STM32F103C8 board,
+sets a 130048-byte linker Flash region (128 KiB minus the final 1 KiB) and
+keeps 20480 bytes of SRAM. The last Flash page remains outside the ELF image.
+No EEPROM or other storage write is enabled in this image. The 64 KiB
+`hybrid_planner_check` retains its 64512-byte link budget and the default
+environment remains `hybrid_2laps`. The core dependency for 128 KiB is pinned
+to PR #23 commit `e1898ed829205d2785ba0a136f4b6947e25778fc`.
+
+The ELF checker validates the actual load-image span, planner symbols and
+static SRAM, with at least 4096 bytes left after the linker's reserved stack
+and heap. This margin is not a measured stack high-water mark. The read-only
+Flash test is not a substitute for a destructive retention test.
+
+| Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
+|---|---|---:|---:|---:|
+| `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 65980 / 130048 B | 14848 B | 16384 / 20480 B |
+
+Host regression passes for the real C11 planner runtime, timed four-sensor
+snapshot, START adapter, route deviation, no progress, wheel stall, rotational
+wheel/gyro disagreement, and GOAL gate. Course geometry agreement and both
+motor-lock variants also pass host tests. These are source/build checks only.
+
+## Safety gates and missing measurements
+
+- `HYBRID_MOTOR_LOCK=1` and `HYBRID_PLANNER_INPUTS_VERIFIED=0`. Compile-time
+  checks reject unlocking the planner qualification image. STBY stays LOW.
+- START localization from PR #23 only accepts four fresh, valid VL53 readings
+  while stationary, and requires a reviewed map, START search bounds, and
+  sensor mounts. An ambiguous result cannot authorize a pose.
+- The planner's completion status requires a separately reviewed GOAL zone,
+  correct heading, full robot footprint inside that zone, and stopped wheels.
+  A mismatch latches a control stop. Test coordinates are synthetic fixtures.
+- Route deviation, no progress, left/right stall and rotational wheel/gyro
+  disagreement latch a control stop. Translational wheel slip is **not**
+  directly observable from encoders plus gyro alone; external pose evidence
+  is required to claim that feature.
+- The existing A*, Pure Pursuit, dynamic sensor map, replan policy, local arc,
+  independent watchdog and STBY motor lease remain in the image. Their
+  timing and behavior on this PCB have not been requalified by this build.
+
+`NEEDS_MEASUREMENT`: START position/bounds and angle, four sensor mount/FOV
+angles, surveyed obstacle positions and random-obstacle test, GOAL zone and
+competition finish rule, wheel/gyro calibration, route-error limit, minimum
+progress and stall/yaw mismatch durations, real brake distance, planner WCET,
+stack high-water mark, and Flash upper-page write/retention. Values in host
+tests are fixtures; they are not copied into the robot's operating config.
+
+## First on-vehicle acceptance sequence
+
+1. Leave the motor battery disconnected. Inspect the PCB supply and measure
+   PB0/STBY near 0 V while ST-Link supplies the logic rail. Do not upload this
+   image until a separate physical Flash test strategy is agreed.
+2. With the motor lock still on, inspect `startLocalizationResult.status`,
+   `plannerPoseVerified`, `plannerStatus`, `plannerGoalReached`, and
+   `plannerHealth.latched` in an SWD debug session. PASS for this locked stage:
+   no motor motion, STBY LOW, no unverified route or GOAL accepted.
+3. Survey the START/GOAL and mount values, then review them in a separate
+   change. Bench-test Flash write/retention, stack and planner runtime before
+   considering any motor unlock. A build PASS is not hardware PASS.
+
+No upload, Flash erase, motor run, or merge was performed for this change.
