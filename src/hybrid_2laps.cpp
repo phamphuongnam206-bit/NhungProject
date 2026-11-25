@@ -20,6 +20,7 @@
 #include "planner_route_view.h"
 #include "planner_runtime.h"
 #include "planner_snapshot.h"
+#include "planner_pose_window.h"
 #include "map_grid.h"
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -96,6 +97,9 @@ constexpr uint16_t RANGE_OPEN_MM = 2000;
 
 struct Point { float x, y; };
 struct Pose { Point p; float yaw; };  // 0 = len map (+Y); duong = quay phai.
+#if HYBRID_PLANNER_ROUTE
+PlannerPoseWindow poseHistory;
+#endif
 // Toa do sa hinh (cm), goc o goc trai duoi. Khung trong cua bang den:
 constexpr float MAP_LEFT = 5.0f, MAP_RIGHT = 175.0f;
 constexpr float MAP_BOTTOM = 5.0f, MAP_TOP = 115.0f;
@@ -183,6 +187,9 @@ struct Reading {
   uint16_t mm;
   uint32_t at;
   Pose origin;
+#if HYBRID_PLANNER_ROUTE
+  bool stableOrigin;
+#endif
 };
 Reading pendingRange[SENSOR_COUNT] = {}, frame[SENSOR_COUNT] = {};
 constexpr uint8_t ALL_RANGES_MASK = (1U << SENSOR_COUNT) - 1U;
@@ -190,6 +197,9 @@ uint8_t pendingMask = 0, pollIndex = 0, receivedRangeMask = 0;
 uint8_t rangeFaultMask = 0, rangeRestarts = 0;
 uint16_t rangeReadErrors[SENSOR_COUNT] = {};
 uint32_t lastRangePollUs = 0;
+#if HYBRID_PLANNER_ROUTE
+uint32_t lastRangeResultMs[SENSOR_COUNT] = {};
+#endif
 bool frameReady = false;
 uint32_t frameAt = 0;
 
@@ -465,6 +475,9 @@ bool initArcSensors(bool restartBus = false) {
   pendingMask = receivedRangeMask = pollIndex = 0;
   frameReady = false;
   frameAt = 0;
+#if HYBRID_PLANNER_ROUTE
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) lastRangeResultMs[i] = 0;
+#endif
 
   uint8_t missingAtInit = 0;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
@@ -555,7 +568,19 @@ void pollRange() {
 
   const uint32_t now = millis();
   const uint16_t range = min(mm, RANGE_OPEN_MM);
+#if HYBRID_PLANNER_ROUTE
+  PlannerPoseSample stationaryPose{};
+  // A newly initialized or stalled sensor may still expose an older result.
+  const bool originStable = lastRangeResultMs[i] != 0U &&
+      now - lastRangeResultMs[i] <= 100U &&
+      poseHistory.stableOrigin(now, &stationaryPose);
+  lastRangeResultMs[i] = now;
+  const Pose rangeOrigin = originStable ?
+      Pose{{stationaryPose.x_cm, stationaryPose.y_cm}, stationaryPose.yaw_rad} : pose;
+  pendingRange[i] = {range, now, rangeOrigin, originStable};
+#else
   pendingRange[i] = {range, now, pose};
+#endif
   receivedRangeMask |= 1U << i;
   pendingMask |= 1U << i;
   if (pendingMask != ALL_RANGES_MASK) return;
@@ -671,10 +696,11 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   source.encoder_valid = true;
   source.gyro_valid = gyroReady && now - lastGyroGoodMs <= 100U;
   source.emergency_stop = emergencyStop;
-  // frame.origin/at are captured at result READ, not measurement exposure.
-  // Continuous 20ms ranging requires pose history before timed mapping is safe.
-  source.ranges_have_origins = false;
+  // No exposure timestamp: only a continuously stable 100 ms pose window
+  // permits a read-time origin. Otherwise leave dynamic mapping disabled.
+  source.ranges_have_origins = true;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    source.ranges_have_origins &= frame[i].stableOrigin;
     source.ranges[i] = {frame[i].mm, frame[i].at,
                         vlReady[i] && frame[i].mm != 0U,
                         frame[i].origin.p.x, frame[i].origin.p.y,
@@ -1253,6 +1279,9 @@ void loop() {
   updateEncoders(dL, dR);
   lastEncoderSampleMs = now;
   updatePose(dL, dR);
+#if HYBRID_PLANNER_ROUTE
+  poseHistory.record({pose.p.x, pose.p.y, pose.yaw, now});
+#endif
   if (!wheelL.observe(dL, now, dt, MAP_COUNTS_CM_L)) {
     halt("STALL_OR_DIR_L", Fault::LEFT_WHEEL); return;
   }
