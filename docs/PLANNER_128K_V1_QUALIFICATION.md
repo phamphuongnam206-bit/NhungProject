@@ -28,7 +28,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61716 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 67640 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67892 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -81,8 +81,9 @@ fixture's distances and pose are synthetic source/build checks only.
 - The nominal 17-obstacle C11 A* topology test finds a route, but the same
   route with the actual footprint and clearance policy fails with
   `PLANNER_UNSAFE_TURN`. This is an open V1 safety blocker, not a PASS.
-  START_ENTRY, GOAL_EXIT and the physical button gate are also not wired into
-  the locked runtime; see `COURSE_LAYOUT_17.md`.
+  START_ENTRY and GOAL_EXIT are not wired into the locked runtime. The PB1
+  start-button software gate now requires release then press, but has no
+  physical PCB test; see `COURSE_LAYOUT_17.md`.
 
 `NEEDS_MEASUREMENT`: START position/bounds and angle, four sensor mount/FOV
 angles, surveyed obstacle positions and random-obstacle test, GOAL zone and

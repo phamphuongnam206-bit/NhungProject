@@ -38,7 +38,11 @@ V1 needs separate guarded states before motor unlock:
    `y + projected_half_length < 0` and the whole body between X=120..180,
    then require stopped encoder pulses before `FINISHED`.
 
-These states are **not implemented in the current locked image**. Its
+`START_ENTRY` and `GOAL_EXIT` are **not implemented in the current locked
+image**. The 128 KiB image now waits for a stable PB1 release followed by a
+fresh 30 ms press before attempting planner control. PB1 is the reviewed PCB
+mode-button input with pull-up; this is a software start gate, not START_ENTRY.
+Its
 planner GOAL gate remains unverified and prevents acceptance. The host GOAL
 geometry test covers whole-body crossing only; it does not prove the vehicle
 can reach or brake after the line. The current `HALF_LENGTH=6.8` and
@@ -65,5 +69,4 @@ new nominal 17-block geometry. Four random-obstacle positions, surveyed
 foam positions, body size, START pose, GOAL exit/braking envelope, sensor
 mounts and rule interpretation for the 3-minute/4-minute timers, reset and
 penalties still need confirmation. No automatic run should depend on those
-unknown values. The physical start-button pin is also not identified in this
-image, so a button-triggered run is not implemented.
+unknown values. The PB1 gate has not been exercised on the physical PCB.

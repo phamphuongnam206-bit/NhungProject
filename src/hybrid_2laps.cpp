@@ -175,13 +175,22 @@ constexpr Beam BEAMS[SENSOR_COUNT] = {
   {-2.5f, 4.5f, -35.43f}, {-2.5f, 4.5f, 0}, {2.5f, 4.5f, 0}, {2.5f, 4.5f, 35.43f},
 };
 
-enum class RunMode { WAIT_SENSORS, AUTO_RUN, LOCKED, FINISHED };
+enum class RunMode {
+  WAIT_SENSORS,
+  WAIT_BUTTON_RELEASE,
+  WAIT_BUTTON_PRESS,
+  AUTO_RUN,
+  LOCKED,
+  FINISHED
+};
 enum class Fault : uint8_t { NONE, MPU, LEFT_WHEEL, RIGHT_WHEEL, SENSOR, OBSTACLE, CONTROL };
 RunMode mode = RunMode::WAIT_SENSORS;
 Fault fault = Fault::NONE;
 const char *status = "START";
 Pose pose{MAP_START, 0};
 #if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+constexpr uint32_t START_BUTTON_PIN = PB1;
+constexpr uint32_t START_BUTTON_DEBOUNCE_MS = 30U;
 // These values require surveyed START bounds, mount/FOV measurements and a
 // reviewed finish rule. Empty defaults cannot authorize a global pose.
 struct StartRegionConfig {
@@ -1407,6 +1416,7 @@ void setup() {
   initPlannerDiagnosticConfig();
 #if HYBRID_PLANNER_128K
   initPlannerCycleCounter();
+  pinMode(START_BUTTON_PIN, INPUT_PULLUP);
 #endif
 #endif
   initHardwareEncoders();
@@ -1553,6 +1563,33 @@ void loop() {
     }
   }
   if (!rangesPermitMotion(now, frameReady && oldestRangeAge <= SENSOR_STALE_MS)) return;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  // Require a stable release after boot, then a fresh stable press. PB1 is
+  // pulled up on the reviewed PCB; a held button at power-on cannot start.
+  if (mode == RunMode::WAIT_SENSORS) {
+    mode = RunMode::WAIT_BUTTON_RELEASE;
+    stoppedAt = now;
+  }
+  if (mode == RunMode::WAIT_BUTTON_RELEASE || mode == RunMode::WAIT_BUTTON_PRESS) {
+    const bool released = digitalRead(START_BUTTON_PIN) == HIGH;
+    if (mode == RunMode::WAIT_BUTTON_RELEASE) {
+      if (!released) stoppedAt = now;
+      else if (now - stoppedAt >= START_BUTTON_DEBOUNCE_MS) {
+        mode = RunMode::WAIT_BUTTON_PRESS;
+        stoppedAt = now;
+      }
+    } else if (released) stoppedAt = now;
+    else if (now - stoppedAt >= START_BUTTON_DEBOUNCE_MS) {
+      mode = RunMode::AUTO_RUN;
+      plannerLastPollMs = now - 30U;
+    }
+    if (mode != RunMode::AUTO_RUN) {
+      stopMotors();
+      status = "WAIT_START_BUTTON";
+      return;
+    }
+  }
+#endif
   mode = RunMode::AUTO_RUN;
 
   const float sinYaw = sinf(pose.yaw), cosYaw = cosf(pose.yaw);
