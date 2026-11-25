@@ -1,0 +1,14 @@
+{
+  "wheel": "right_J12",
+  "circumference_cm_user_approx": 13.8,
+  "runs": [
+    2251,
+    2268
+  ],
+  "revolutions_per_run": 3,
+  "mean_ticks_per_rev_candidate": 753.1666666666666,
+  "counts_per_cm_candidate": 54.57729468599033,
+  "run2_difference_from_run1_percent": 0.7552199022656597,
+  "status": "PROVISIONAL_TWO_MANUAL_RUNS_NO_GROUND_VALIDATION",
+  "firmware_parameters_updated": false
+}

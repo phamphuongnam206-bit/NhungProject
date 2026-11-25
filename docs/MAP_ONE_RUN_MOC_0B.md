@@ -59,6 +59,8 @@ Trước khi `setup()` cấu hình PB0, mức STBY phụ thuộc phần cứng P
 | Động học | gia tốc, giảm tốc, quãng phanh | NEEDS_MEASUREMENT; đo khi xe chạy trong vùng thử có chặn ngoài. |
 | VL53 | x/y/yaw của J8, J9, J10, J11 so với tâm trục bánh | NEEDS_MEASUREMENT; đo bằng thước và mốc hướng, rồi đối chiếu tường/vật phẳng. |
 
+Log quay tay cũ của cả hai encoder đã được giữ tại `docs/test_results/provisional_wheel_20261124/`. J12 khoảng 753 tick/vòng và J13 khoảng 822 tick/vòng trong hai lượt mỗi bánh; đây là dữ liệu kê bánh, **không phải** counts/cm đã đo khi xe chạy trên sàn. Công cụ tính từ quãng đường thật `tools/calibrate_wheels.py` cũng được mang từ bản lưu trữ sang, nên không cần quay tay lại chỉ để lấy số cũ.
+
 Mỗi kết quả phải lưu số thô, đơn vị, ngày, cấu hình pin/nguồn, chiều quan sát, số lượt và sai số; chỉ chuyển từng trường sang `VERIFIED` sau khi phép thử lặp lại đạt tiêu chí. Gate `PlannerKinematicsReady` trên bản 128 KiB yêu cầu trạng thái đã xác nhận và so với hằng số điều khiển; giá trị giữ chỗ không thể cho phép planner chạy.
 
 ## Kịch bản thử dùng `pid_calibration`
