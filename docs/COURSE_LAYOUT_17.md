@@ -1,25 +1,69 @@
-# Course layout from supplied T1-T17 diagram
+# Nominal course geometry, 12 October 2026 rules
 
-The supplied image confirms 17 fixed obstacles and one additional random
-obstacle. The coordinates used in the planner branch are the estimates already
-recorded in `xe_tranh_vat_can/pc_sim/simulation_map.json`: 180 x 120 cm,
-forbidden rectangle [60,0,60,60], T1-T17 rectangles. The image does not
-provide surveyed coordinates; those estimates remain unverified for hardware.
+Coordinate origin: lower left of the 180 x 120 cm arena; +X right, +Y up.
+The nominal 10 x 10 cm foam block centers T1..T17 and the [60,0,60,60] cm
+forbidden rectangle are in `tests/fixtures/simulation_map.json`. These are
+diagram coordinates, **not** surveyed positions. T7 is centered at (35,90),
+correcting the earlier (35,85) firmware entry. The planner build uses the
+same `MAP_BOXES` rectangles for the 5 cm C11 grid and hybrid local collision
+check. The 64 KiB fallback retains its old hybrid route and obstacle list.
 
-The planner branch builds its 5 cm MapGrid from the same MAP_BOXES rectangles
-used by the local arc footprint check. The first rectangle is forbidden; the
-17 others are fixed obstacles. The random obstacle is absent initially and
-must be detected/confirmed from sensor readings. Floor lines are not modeled
-as ToF reflectors. Legacy hybrid_2laps retains its prior boxes in its own
-compile branch. HYBRID_PLANNER_INPUTS_VERIFIED remains 0, so this map cannot
-start an autonomous run without later explicit verification and valid pose.
+The arena outline and forbidden rectangle are floor tape: collision/planning
+constraints, not ToF targets. The 128 KiB START scan passes all 18 rectangles
+for collision, skips rectangle 0 (forbidden zone) for raycasting, and disables
+arena-edge echoes. The 17 foam blocks alone are modeled as reflectors. Real
+ToF response still depends on material, angle, lighting and measured mounts.
+One random obstacle may appear at one of four locations, but their coordinates
+are unknown and are **not** in the static map. Fresh VL53 detections remain
+the only source of dynamic-map updates and replanning for that obstacle.
 
-Test `python -m unittest discover -s tests -p test_course_layout.py -v`
-checks all 17 IDs and rectangle equality against the Python configuration.
-The committed test fixture is a copy of the pinned core's
-`pc_sim/simulation_map.json` at d36c524b3ae0a6c4009f875ddcefda9de39c5df8.
-Both PlatformIO environments hybrid_2laps and hybrid_planner_check build PASS.
-Planner ELF Flash span 61024/64512 B; static RAM 14448 B. Tests prove code
-agreement with the estimated configuration, not real course clearance or a
-successful one-run route. Next: obtain actual surveyed dimensions and valid
-START/GOAL/finish crossing rule before enabling motion.
+## START and GOAL boundary
+
+The C11 `MapGrid_WorldToCell` rejects negative Y; its 24 x 36 cells cover
+0 <= Y < 120, 0 <= X < 180. Its border cells are blocked for planning. Thus
+an external START pose or a GOAL pose with the entire body beyond Y=0 cannot
+be represented as a planner waypoint. Do not enlarge the grid merely for
+these short boundary movements.
+
+V1 needs separate guarded states before motor unlock:
+
+1. `START_ENTRY`: button press, surveyed initial pose, body behind the
+   x=0..60 gate, heading +Y; only a short collision-checked and sensor-checked
+   entry is allowed until the whole body passes Y=0. Then start C11 planning
+   from an interior free cell. No hardcoded `MAP_START` authorizes pose.
+2. `FOLLOWING`: C11 A*, Pure Pursuit, dynamic map/replan and local arc operate
+   inside the field. An interior GOAL approach point is not a finish.
+3. `GOAL_EXIT`: after an approved interior approach, continue through the
+   x=120..180 gate heading -Y with full-body collision checks. Confirm
+   `y + projected_half_length < 0` and the whole body between X=120..180,
+   then require stopped encoder pulses before `FINISHED`.
+
+These states are **not implemented in the current locked image**. Its
+planner GOAL gate remains unverified and prevents acceptance. The host GOAL
+geometry test covers whole-body crossing only; it does not prove the vehicle
+can reach or brake after the line. The current `HALF_LENGTH=6.8` and
+`HALF_WIDTH=5.8` are conservative collision envelopes, not measured body
+dimensions. The 15 x 10 cm rule applies to the physical body; measure it
+separately. In particular, 2*5.8=11.6 cm cannot be labeled physical width
+without violating the stated maximum.
+
+## Software qualification
+
+`python -m unittest discover -s tests -p test_course_layout.py -v` checks
+all 17 nominal blocks, forbidden-zone agreement and ToF classification.
+`python tools/check_course_route.py --core <checkout> --zig <zig>` runs real
+C11 planning on those 18 rectangles. The topological A* path from interior
+START approach (32.5,12.5) to interior GOAL approach (162.5,12.5) succeeds,
+but the current full-footprint planner returns `PLANNER_UNSAFE_TURN` (status 6)
+with its actual clearance policy. This is a **route-safety FAIL**, not a
+successful one-run simulation; the motor lock must remain on. It is not safe
+to remove footprint checks merely to obtain a path.
+
+`pc_sim/mapping.py` is a legacy 13-block simulation with guessed random
+locations; it is not the V1 course source. The JSON fixture above records the
+new nominal 17-block geometry. Four random-obstacle positions, surveyed
+foam positions, body size, START pose, GOAL exit/braking envelope, sensor
+mounts and rule interpretation for the 3-minute/4-minute timers, reset and
+penalties still need confirmation. No automatic run should depend on those
+unknown values. The physical start-button pin is also not identified in this
+image, so a button-triggered run is not implemented.

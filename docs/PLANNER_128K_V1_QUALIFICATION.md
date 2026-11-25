@@ -14,7 +14,8 @@ keeps 20480 bytes of SRAM. The last Flash page remains outside the ELF image.
 No EEPROM or other storage write is enabled in this image. The 64 KiB
 `hybrid_planner_check` retains its 64512-byte link budget and the default
 environment remains `hybrid_2laps`. The core dependency for 128 KiB is pinned
-to PR #23 commit `e1898ed829205d2785ba0a136f4b6947e25778fc`.
+to core commit `2454ca8be28c8fedff0204a62e339cdd162d5427` (PR #23
+START code plus the ToF-reflector classification fix).
 
 The ELF checker validates the actual load-image span, planner symbols and
 live calls into START localization and planner runtime, plus static SRAM, with
@@ -27,7 +28,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61716 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 67620 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67640 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -56,6 +57,10 @@ fixture's distances and pose are synthetic source/build checks only.
   motion; it is not an independent physical proof that the robot is still.
   Failed/ambiguous scans retry only on a new, fresh frame at least 500 ms after
   the previous attempt, so every VL53 frame cannot trigger a full scan.
+  The 12 October nominal map now excludes floor-tape borders and the
+  forbidden zone from START ToF raycasting while retaining their collision
+  constraints. T7 is corrected to center (35,90). This is map classification
+  only; it does not verify the nominal obstacle positions on the real field.
 - The planner's completion status requires a separately reviewed GOAL zone,
   correct heading, full robot footprint inside that zone, and an 80 ms interval
   without encoder pulses after the stop command. If settling takes over 500 ms
@@ -73,6 +78,11 @@ fixture's distances and pose are synthetic source/build checks only.
 - The existing A*, Pure Pursuit, dynamic sensor map, replan policy, local arc,
   independent watchdog and STBY motor lease remain in the image. Their
   timing and behavior on this PCB have not been requalified by this build.
+- The nominal 17-obstacle C11 A* topology test finds a route, but the same
+  route with the actual footprint and clearance policy fails with
+  `PLANNER_UNSAFE_TURN`. This is an open V1 safety blocker, not a PASS.
+  START_ENTRY, GOAL_EXIT and the physical button gate are also not wired into
+  the locked runtime; see `COURSE_LAYOUT_17.md`.
 
 `NEEDS_MEASUREMENT`: START position/bounds and angle, four sensor mount/FOV
 angles, surveyed obstacle positions and random-obstacle test, GOAL zone and
