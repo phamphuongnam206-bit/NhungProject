@@ -36,4 +36,9 @@ class CourseLayoutTest(unittest.TestCase):
         self.assertIn("scan.first_reflector_index = 1U", SOURCE)
         self.assertIn("scan.arena_edges_reflect = 0U", SOURCE)
 
+    def test_collision_width_covers_reported_vehicle(self):
+        match = re.search(r"HALF_WIDTH\s*=\s*([0-9.]+)f", SOURCE)
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(2 * float(match.group(1)), CONFIG["robot_width_cm"])
+
 if __name__ == "__main__": unittest.main()

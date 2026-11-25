@@ -124,7 +124,9 @@ constexpr float START_LINE_Y = 7.0f;
 constexpr float FINISH_Y = 7.0f, FINISH_X_MIN = 125.0f, FINISH_X_MAX = 175.0f;
 constexpr Point MAP_START{33.0f, 7.5f};
 constexpr Point FINISH_APPROACH{152.5f, 7.5f};
-constexpr float HALF_LENGTH = 6.8f, HALF_WIDTH = 5.8f;
+// User-supplied overall width: 11.3 cm. Keep the collision envelope at least
+// as wide as that value; physical dimensions still need competition review.
+constexpr float HALF_LENGTH = 6.8f, HALF_WIDTH = 5.65f;
 // Diem ngam ao sau vach de giu huong. Xe phanh ngay khi ca than qua vach.
 constexpr Point FINISH_EXTENSION{FINISH_APPROACH.x, -12.0f};
 

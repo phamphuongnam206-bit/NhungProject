@@ -44,11 +44,12 @@ fresh 30 ms press before attempting planner control. PB1 is the reviewed PCB
 mode-button input with pull-up; this is a software start gate, not START_ENTRY.
 Its planner GOAL gate remains unverified and prevents acceptance. The host GOAL
 geometry test covers whole-body crossing only; it does not prove the vehicle
-can reach or brake after the line. The current `HALF_LENGTH=6.8` and
-`HALF_WIDTH=5.8` are conservative collision envelopes, not measured body
-dimensions. The 15 x 10 cm rule applies to the physical body; measure it
-separately. In particular, 2*5.8=11.6 cm cannot be labeled physical width
-without violating the stated maximum.
+can reach or brake after the line. `HALF_WIDTH=5.65` now follows the user's
+11.3 cm overall-width figure; `HALF_LENGTH=6.8` remains a provisional
+envelope. The user also reports a 15 cm gap between adjacent blocks, without
+identifying the particular pair. The 15 x 10 cm rule applies to the physical
+body: the reported 11.3 cm width exceeds its 10 cm limit by 1.3 cm. Software
+cannot resolve that competition-size conflict.
 
 ## Software qualification
 
@@ -67,12 +68,13 @@ full START_ENTRY from behind the line and GOAL_EXIT beyond it remain untested;
 motor lock stays on. Do not remove footprint checks to force a direct route.
 
 The apparent straight corridors have almost no surveyed tolerance. At
-X=42.5 cm through T2/T3/T4 and X=162.5 cm beside T17, the nominal lateral
-gap after the current 5.8 cm half-width envelope and 1.5 cm obstacle margin
-is only `7.5 - 5.8 - 1.5 = 0.2 cm`. This is a calculation from diagram
-coordinates, not a measured safety margin. A small position or body-width
-error can erase it. START_ENTRY and GOAL_EXIT therefore need measured body
-dimensions and obstacle positions before a motion state is authorized.
+X=42.5 cm through T2/T3/T4 and X=162.5 cm beside T17, the nearest nominal
+block face is 7.5 cm from the tested centerline. The remaining lateral
+clearance is `7.5 - 11.3/2 - 1.5 = 0.35 cm` on that side. For a centered
+15 cm gap, this same calculation applies to both sides. This uses the
+nominal diagram and user-provided dimensions, not a surveyed safety margin. A small
+position or width error can erase it. START_ENTRY and GOAL_EXIT therefore
+still need a measured path and body dimensions before motion is authorized.
 
 `pc_sim/mapping.py` is a legacy 13-block simulation with guessed random
 locations; it is not the V1 course source. The JSON fixture above records the

@@ -93,6 +93,8 @@ competition finish rule, wheel/gyro calibration, route-error limit, minimum
 progress and stall/yaw mismatch durations, real brake distance, planner WCET,
 stack high-water mark, and Flash upper-page write/retention. Values in host
 tests are fixtures; they are not copied into the robot's operating config.
+The user-provided 11.3 cm overall width is used in the collision footprint;
+it has not been independently checked and exceeds the stated 10 cm rule.
 
 ## Timing measurements prepared for SWD
 

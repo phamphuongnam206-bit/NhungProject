@@ -39,7 +39,7 @@ int main() {
   exit.xmin_cm = 120; exit.xmax_cm = 180;
   exit.ymin_cm = -25; exit.ymax_cm = 0;
   exit.heading_rad = 3.14159265f; exit.heading_tolerance_rad = 0.2f;
-  exit.half_length_cm = 6.8f; exit.half_width_cm = 5.8f;
+  exit.half_length_cm = 6.8f; exit.half_width_cm = 5.65f;
   assert(!PlannerGoalGate_Complete(exit, true, true, 150, -2, 3.14f));
   assert(PlannerGoalGate_Complete(exit, true, true, 150, -10, 3.14f));
   assert(!PlannerGoalGate_Complete(exit, true, true, 124, -10, 3.14f));
