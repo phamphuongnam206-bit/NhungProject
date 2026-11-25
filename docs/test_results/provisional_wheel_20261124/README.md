@@ -1,9 +1,10 @@
 # Encoder wheel-scale evidence recovered from the earlier firmware snapshot
 
-These seven JSON files were copied byte-for-byte from the local archived
-`CUOI_KY/NhungProject-main/docs/test_results` snapshot. The same snapshot's
-existing `tools/calibrate_wheels.py` and its four unit tests were copied into
-this repository. The archive is not a Git checkout, so no source commit can be
+These seven JSON files preserve the values from the local archived
+`CUOI_KY/NhungProject-main/docs/test_results` snapshot. Git may normalize line
+endings. The same snapshot's existing `tools/calibrate_wheels.py` and its four
+unit tests were copied into this repository. The archive is not a Git checkout,
+so no source commit can be
 attributed; the raw counter values and measurement method are preserved here.
 
 | Wheel | Two raised-wheel runs | Mean ticks/rev | Inferred counts/cm |
