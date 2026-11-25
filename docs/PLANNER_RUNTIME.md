@@ -11,10 +11,10 @@ runtime xóa tuyến và cần Begin lại. Flag verified là hợp đồng củ
 phải phép tự đo hay chứng nhận định vị. Freshness và lỗi cấu hình được kiểm tra
 tiếp bởi core; caller phải kiểm tra status/safety trước khi dùng tuyến.
 
-**Chưa gọi Begin/Poll từ loop với cảm biến thật.** Đây là runtime đã link ARM và
-test host; còn thiếu xây map sân, cấu hình đã xác nhận và snapshot encoder/MPU/
-VL53 đồng bộ để nối vào scheduler. Hàm lấy mission chỉ phục vụ đọc hình học,
-không cấp quyền chuyển động. STBY/PWM tiếp tục khóa và không upload.
+Loop khóa motor đã gọi Begin/Poll với snapshot encoder, MPU và VL53. Mỗi range
+có origin pose tại lúc đo để core cập nhật occupancy động; output adapter vẫn
+chỉ là preview và không cấp quyền chuyển động. Map sân, pose xuất phát và
+calibration thật vẫn chưa được xác nhận; STBY/PWM tiếp tục khóa và không upload.
 
 Test thực dùng 12 module C core, không giả lập planner: Begin từ chối đầu vào
 chưa xác nhận/chưa dừng; Poll chờ đứng yên, tìm tuyến thật, chuyển waypoint cho

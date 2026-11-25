@@ -635,8 +635,12 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   source.encoder_valid = true;
   source.gyro_valid = gyroReady && now - lastGyroGoodMs <= 100U;
   source.emergency_stop = emergencyStop;
+  source.ranges_have_origins = true;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
-    source.ranges[i] = {frame[i].mm, frame[i].at, vlReady[i] && frame[i].mm != 0U};
+    source.ranges[i] = {frame[i].mm, frame[i].at,
+                        vlReady[i] && frame[i].mm != 0U,
+                        frame[i].origin.p.x, frame[i].origin.p.y,
+                        frame[i].origin.yaw};
   }
   OneRunInput snapshot{};
   plannerLastPollMs = now;

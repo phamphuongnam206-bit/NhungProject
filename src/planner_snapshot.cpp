@@ -36,7 +36,23 @@ extern "C" bool PlannerSnapshot_Build(const PlannerSnapshotSource *s,
   output->safety.control_deadline_ok = 1;
   output->safety.emergency_stop_requested = s->emergency_stop ? 1 : 0;
   output->safety.front_min_mm = s->ranges[1].mm < s->ranges[2].mm ? s->ranges[1].mm : s->ranges[2].mm;
-  // Do not project historical ranges using the latest pose. ranges_ready=0.
+  if (s->ranges_have_origins) {
+    for (unsigned i = 0; i < 4; ++i) {
+      const PlannerTimedRange &range = s->ranges[i];
+      if (!isfinite(range.x_cm) || !isfinite(range.y_cm) ||
+          !isfinite(range.hybrid_yaw_rad)) {
+        return false;
+      }
+      output->range_poses[i] = {
+        range.x_cm, range.y_cm,
+        remainderf(1.57079632679f -
+                   remainderf(range.hybrid_yaw_rad, 6.28318530718f),
+                   6.28318530718f),
+      };
+    }
+    output->ranges_ready = 1;
+    output->range_poses_ready = 1;
+  }
   // planner_ok is owned by mission, not the sensor snapshot.
   return true;
 }

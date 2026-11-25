@@ -24,12 +24,17 @@ The hybrid loop now starts the STM32F1 independent watchdog with a nominal
 over 150 ms latches `CONTROL_LOOP_TIMEOUT` and stops the vehicle. These paths
 are source/build verified; reset timing still needs a controlled PCB test.
 
+The core mapping API is pinned to local checkout commit `d36c524`. The loop
+passes the pose captured with each VL53 sample to `SensorMap_UpdateTimed`, so
+confirmed hits can update the runtime occupancy map without reprojecting old
+measurements from the latest pose.
+
 ## Verification
 
 - `hybrid_planner_check` ARM build passed.
-- ELF span is `64,128 / 64,512` bytes.
-- Static RAM is `14,456` bytes and RAM including linker reservation is
-  `15,992 / 20,480` bytes.
+- ELF span is `64,428 / 64,512` bytes.
+- Static RAM is `14,508` bytes and RAM including linker reservation is
+  `16,048 / 20,480` bytes.
 - Motor-lock host test passed for `HYBRID_MOTOR_LOCK=0` and `1`.
 - Runtime host test passed with the real C core.
 - Snapshot and route-view host tests passed.
