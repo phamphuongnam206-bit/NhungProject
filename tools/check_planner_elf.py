@@ -12,7 +12,7 @@ REQUIRED = {
     "OneRunAdapter_Poll", "OneRunMission_Init", "OneRunMission_Step",
     "Planner_ReplanWithPolicy", "AStar_FindPathWithPolicy", "PathFollower_Compute",
     "NavigationReplan_Evaluate", "SensorMap_Update", "OneRunFirmwareLinkProbe",
-    "one_run_link_storage",
+    "one_run_link_storage", "PlannerRoute_Sample",
 }
 
 
