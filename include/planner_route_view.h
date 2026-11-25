@@ -15,3 +15,12 @@ struct PlannerRouteSample {
 extern "C" bool PlannerRoute_Sample(const OneRunMission *mission,
                                     float distance_cm,
                                     PlannerRouteSample *output);
+
+struct PlannerRouteTarget {
+  PlannerRouteSample lookahead;
+  float progress_cm, cross_track_cm;
+  unsigned current_segment;
+};
+extern "C" bool PlannerRoute_Target(const OneRunMission *mission,
+    float x_cm, float y_cm, float lookahead_cm, PlannerRouteTarget *output);
+extern "C" const OneRunMission *OneRunFirmwareMission();

@@ -1,6 +1,35 @@
 #include "planner_route_view.h"
 #include <math.h>
 
+extern "C" bool PlannerRoute_Target(const OneRunMission *mission,
+    float x_cm, float y_cm, float lookahead_cm, PlannerRouteTarget *output) {
+  if (!output) return false;
+  *output = {};
+  PlannerRouteSample validation{};
+  if (!isfinite(lookahead_cm) || lookahead_cm <= 0 ||
+      !PlannerRoute_Sample(mission, 0, &validation)) return false;
+  PathFollowerPose pose{x_cm, y_cm, 0};
+  PathFollowerProjection projection{};
+  if (PathFollower_Project(&pose, mission->waypoints, mission->waypoint_count,
+                           &projection) != PATH_FOLLOWER_OK) return false;
+  float progress = 0;
+  for (unsigned i = 0; i <= projection.segment; ++i) {
+    const auto a = mission->waypoints[i], b = mission->waypoints[i + 1];
+    const float length = hypotf(float(b.col) - float(a.col),
+                               float(b.row) - float(a.row)) * MAP_GRID_CELL_CM;
+    progress += length * (i == projection.segment ? projection.fraction : 1.0f);
+  }
+  PlannerRouteTarget candidate{};
+  if (!PlannerRoute_Sample(mission, progress + lookahead_cm, &candidate.lookahead))
+    return false;
+  candidate.progress_cm = progress;
+  candidate.current_segment = projection.segment;
+  candidate.cross_track_cm = hypotf(x_cm - projection.x_cm, y_cm - projection.y_cm);
+  if (!isfinite(candidate.cross_track_cm)) return false;
+  *output = candidate;
+  return true;
+}
+
 extern "C" bool PlannerRoute_Sample(const OneRunMission *mission,
                                     float distance_cm,
                                     PlannerRouteSample *output) {

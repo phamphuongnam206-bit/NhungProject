@@ -10,6 +10,13 @@
 #if HYBRID_MOTOR_LOCK != 0 && HYBRID_MOTOR_LOCK != 1
 #error "HYBRID_MOTOR_LOCK must be 0 or 1"
 #endif
+#if HYBRID_PLANNER_ROUTE
+#if !HYBRID_MOTOR_LOCK
+#error "Planner route integration is diagnostic only and requires motor lock"
+#endif
+#include "planner_route_view.h"
+PlannerRouteTarget plannerRouteTarget{};
+#endif
 
 // ============================================================================
 // LUOT 2 V26 - TUYEN 180 x 120 CM - OM CUA TIEN
@@ -607,12 +614,17 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
   if (left < MAP_LEFT + OBSTACLE_MARGIN_CM || right > MAP_RIGHT - OBSTACLE_MARGIN_CM ||
       y + ey > MAP_TOP - OBSTACLE_MARGIN_CM) return false;
   if (bottom < MAP_BOTTOM) {
+#if HYBRID_PLANNER_ROUTE
+    // No inherited start/finish boundary exception from the fixed route.
+    return false;
+#else
     const bool leavingStart = segment == 0 && c > 0 && bottom >= 0.0f &&
                               left > START_X_MIN && right < START_X_MAX;
     const bool crossingFinish = segment >= ROUTE_COUNT - 3 &&
                                 c < -0.65f && left > FINISH_X_MIN &&
                                 right < FINISH_X_MAX && y >= FINISH_EXTENSION.y - HALF_LENGTH;
     if (!leavingStart && !crossingFinish) return false;
+#endif
   }
   for (const Box &b : MAP_BOXES) {
     const float dx = b.x - x, dy = b.y - y;
@@ -634,10 +646,16 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
 }
 
 bool finishPassed(float x, float y, float s, float c) {
+#if HYBRID_PLANNER_ROUTE
+  // Old ROUTE's final two points do not define the new route's finish gate.
+  (void)x; (void)y; (void)s; (void)c;
+  return false;
+#else
   const float edgeX = HALF_WIDTH*fabsf(c) + HALF_LENGTH*fabsf(s);
   const float edgeY = HALF_WIDTH*fabsf(s) + HALF_LENGTH*fabsf(c);
   return progress >= pathS[ROUTE_COUNT-2] - 6.0f && c < -0.65f &&
          x - edgeX > FINISH_X_MIN && x + edgeX < FINISH_X_MAX && y + edgeY < FINISH_Y;
+#endif
 }
 
 float arcFreeDistance(const Pose &start, float curve, float horizon, uint32_t now) {
@@ -712,6 +730,14 @@ bool startLineCleared(float sinYaw, float cosYaw) {
 }
 
 Plan choosePlan(uint32_t now) {
+#if HYBRID_PLANNER_ROUTE
+  const float look = 11.0f + fminf(4.0f, commandedSpeed * 0.11f);
+  if (!PlannerRoute_Target(OneRunFirmwareMission(), pose.p.x, pose.p.y,
+                           look, &plannerRouteTarget)) return {};
+  progress = plannerRouteTarget.progress_cm;
+  segment = static_cast<uint8_t>(plannerRouteTarget.current_segment);
+  const Point target{plannerRouteTarget.lookahead.x_cm, plannerRouteTarget.lookahead.y_cm};
+#else
   if (leavingStartLine) {
     // Chi chinh lech nho de giu huong +Y cho den khi duoi xe qua vach xanh.
     constexpr float maxStartCurve = 0.025f;
@@ -724,6 +750,7 @@ Plan choosePlan(uint32_t now) {
   updateProgress();
   const float look = 11.0f + fminf(4.0f, commandedSpeed * 0.11f);
   const Point target = routeAt(progress + look);
+#endif
   const float dx = target.x - pose.p.x, dy = target.y - pose.p.y;
   const float lateral = dx*cosf(pose.yaw) - dy*sinf(pose.yaw);
   const float forward = dx*sinf(pose.yaw) + dy*cosf(pose.yaw);
@@ -773,7 +800,11 @@ Plan choosePlan(uint32_t now) {
   speed = fminf(speed, speedForClearance(bestFree - 4.0f));
   speed = fminf(speed, 1.72f / fmaxf(fabsf(bestCurve), 0.02f));
   if (fabsf(bestCurve) > 0.045f) speed = fminf(speed, TURN_CM_S);
+#if HYBRID_PLANNER_ROUTE
+  const float beforeFinish = fmaxf(0, plannerRouteTarget.lookahead.length_cm - progress);
+#else
   const float beforeFinish = fmaxf(0, pathS[ROUTE_COUNT-2] - progress);
+#endif
   if (beforeFinish < 16.0f) speed = fminf(speed, SLOW_CM_S + beforeFinish);
   return {speed, bestCurve, bestFree};
 }
@@ -786,7 +817,14 @@ void printStatus(uint32_t now) {
   Serial.print(" arc_cm="); Serial.print(plan.clearCm, 1);
   Serial.print(" seg="); Serial.print(segment);
   if (!leavingStartLine) {
+#if HYBRID_PLANNER_ROUTE
+    PlannerRouteSample referenceSample{};
+    const bool referenceValid = PlannerRoute_Sample(OneRunFirmwareMission(), progress, &referenceSample);
+    const Point reference{referenceValid ? referenceSample.x_cm : NAN,
+                          referenceValid ? referenceSample.y_cm : NAN};
+#else
     const Point reference = routeAt(progress);
+#endif
     Serial.print(" err_cm="); Serial.print(hypotf(pose.p.x - reference.x, pose.p.y - reference.y), 1);
   }
   Serial.print(" r=");
@@ -895,7 +933,9 @@ void setup() {
 #else
   Serial.println("AUTO_V26_FORWARD_BOOT");
 #endif
+#if !HYBRID_PLANNER_ROUTE
   initRoute();
+#endif
   initHardwareEncoders();
   if (!initArcSensors()) { halt("VL53_INIT_FAIL", Fault::SENSOR); return; }
   for (int i = 0; i < 3 && !gyroReady; ++i) gyroReady = initGyro();
