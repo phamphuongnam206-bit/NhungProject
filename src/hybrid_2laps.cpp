@@ -1601,7 +1601,9 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     return;
   }
-  if (plannerStatus != ONE_RUN_OK) plan = {};
+  // A plan is cached for up to 30 ms. Recheck the current mission/safety
+  // permission on every control tick before that cached command is reused.
+  if (plannerStatus != ONE_RUN_OK || !PlannerRuntime_PreviewPermitted()) plan = {};
 #if HYBRID_PLANNER_128K
   // A pause/replan changes the route origin. Its previous progress timer
   // cannot be used to judge the next route.

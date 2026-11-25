@@ -26,8 +26,8 @@ destructive retention test.
 
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
-| `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 67580 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check` | PASS | 61716 / 64512 B | 14784 B | 16320 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67620 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -67,6 +67,9 @@ fixture's distances and pose are synthetic source/build checks only.
   route's progress timer before monitoring the new path. Translational wheel
   slip is **not** directly observable from encoders plus gyro alone; external
   pose evidence is required to claim that feature.
+- The control loop rechecks planner preview permission every tick before
+  reusing its cached local-arc plan. A STOPPED mission or revoked safety
+  permission therefore clears that plan before the braking branch.
 - The existing A*, Pure Pursuit, dynamic sensor map, replan policy, local arc,
   independent watchdog and STBY motor lease remain in the image. Their
   timing and behavior on this PCB have not been requalified by this build.
