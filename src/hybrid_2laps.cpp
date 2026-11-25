@@ -342,7 +342,9 @@ void halt(const char *reason, Fault code) {
   mode = code == Fault::NONE ? RunMode::FINISHED : RunMode::LOCKED;
   fault = code;
   stoppedAt = millis();
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
   Serial.println(reason);
+#endif
 }
 
 void driveWheels(float leftCmS, float rightCmS, float dt) {
@@ -944,6 +946,23 @@ Plan choosePlan(uint32_t now) {
   return {speed, bestCurve, bestFree};
 }
 
+#if defined(HYBRID_COMPACT_DEBUG) && HYBRID_COMPACT_DEBUG
+// Compact diagnostic output keeps the control and safety paths independent of
+// Arduino's floating point formatter and the verbose telemetry strings.
+void printStatus(uint32_t now) {
+  Serial.print(status);
+  Serial.print(" s="); Serial.print((long)lroundf(progress));
+  Serial.print(" c="); Serial.print((long)lroundf(plan.clearCm));
+  Serial.print(" r=");
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    if (i) Serial.print(',');
+    Serial.print(frameReady ? (int)frame[i].mm : -1);
+  }
+  Serial.print(" f="); Serial.print((unsigned)rangeFaultMask, HEX);
+  Serial.print(" age="); Serial.print(frameReady ? (unsigned long)(now - frameAt) : 0UL);
+  Serial.println();
+}
+#else
 void printStatus(uint32_t now) {
   Serial.print(status);
   Serial.print(" xy="); Serial.print(pose.p.x, 1); Serial.print(','); Serial.print(pose.p.y, 1);
@@ -1014,7 +1033,9 @@ void printStatus(uint32_t now) {
   }
   Serial.println();
 }
+#endif
 
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
 void serviceBluetooth() {
   static constexpr char command[] = "LOG";
   static uint8_t matched = 0;
@@ -1050,6 +1071,7 @@ void serviceBluetooth() {
     invalid = false;
   }
 }
+#endif
 
 void setup() {
   bootResetFlags = RCC->CSR & (RCC_CSR_PINRSTF | RCC_CSR_PORRSTF | RCC_CSR_SFTRSTF |
@@ -1062,12 +1084,14 @@ void setup() {
   analogWriteResolution(8);
   stopMotors();
   initWatchdog();
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
   Serial.setRx(PA10); Serial.setTx(PA9);
   Serial.begin(BT_BAUD, SERIAL_8N1);
 #if HYBRID_MOTOR_LOCK
   Serial.println("HYBRID_LINK_CHECK_ONLY MOTOR_LOCK=1; NO_PLANNER_CONTROL");
 #else
   Serial.println("AUTO_V26_FORWARD_BOOT");
+#endif
 #endif
 #if !HYBRID_PLANNER_ROUTE
   initRoute();
@@ -1104,7 +1128,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
       status = "VL53_PAUSE";
       rememberStop(status);
       stopMotors(true);
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
       Serial.println(status);
+#endif
       digitalWrite(LED_PIN, HIGH);
     }
   }
@@ -1118,7 +1144,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
       triedRestart = true;
       ++rangeRestarts;
       status = "VL53_REINIT";
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
       Serial.println(status);
+#endif
       if (!initArcSensors(true)) {
         halt("VL53_REINIT_FAIL", Fault::SENSOR);
       } else {
@@ -1138,7 +1166,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
     if (++freshFrames >= SENSOR_RECOVERY_FRAMES && wheelsSettled()) {
       paused = false;
       lastPlanMs = now - 30U;
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
       Serial.println("VL53_RESUME");
+#endif
       return true;
     }
   }
@@ -1147,7 +1177,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
 
 void loop() {
   reloadWatchdog();
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
   serviceBluetooth();
+#endif
   if (mode == RunMode::LOCKED || mode == RunMode::FINISHED) {
     const uint32_t now = millis();
     if ((fault == Fault::LEFT_WHEEL || fault == Fault::RIGHT_WHEEL) &&
@@ -1258,7 +1290,9 @@ void loop() {
              emergency ? "NEAR_STOP" : "NO_SAFE_FORWARD_ARC";
     if (!braking) rememberStop(status);
     stopMotors(true);
+#if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
     if (!braking) Serial.println(status);
+#endif
     braking = true;
   } else if (!braking || now - lastBlockedAt >= CLEAR_BEFORE_RESTART_MS) {
     braking = false;
