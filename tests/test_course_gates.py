@@ -62,12 +62,12 @@ class GateGeometryTest(unittest.TestCase):
         self.assertTrue(straight_gate_clear(162.5, 12.5, -8,
                                            COURSE["goal_gate_cm"], self.static_blocks))
         self.assertAlmostEqual((15 - 2 * HALF_WIDTH_CM) / 2 -
-                               OBSTACLE_MARGIN_CM, 0.35)
+                               OBSTACLE_MARGIN_CM, 1.0)
 
     def test_shift_or_random_obstacle_closes_narrow_gate(self):
-        self.assertFalse(straight_gate_clear(42.9, -8, 52.5,
+        self.assertFalse(straight_gate_clear(43.6, -8, 52.5,
                                             COURSE["start_gate_cm"], self.static_blocks))
-        self.assertFalse(straight_gate_clear(162.9, 12.5, -8,
+        self.assertFalse(straight_gate_clear(163.6, 12.5, -8,
                                             COURSE["goal_gate_cm"], self.static_blocks))
         dynamic = self.static_blocks + [[40, 20, 5, 5]]
         self.assertFalse(straight_gate_clear(42.5, -8, 52.5,

@@ -55,7 +55,7 @@ int main(void) {
     assert(p.row != 0); /* no A* path outside the positive-Y grid */
   }
   printf("PASS C11 A* nominal topology: %u waypoints, cost %u\n", count, cost);
-  PlannerPolicy safety = {{4,2}, 1, {6.8f/5.0f,5.65f/5.0f}};
+  PlannerPolicy safety = {{4,2}, 1, {6.5f/5.0f,5.0f/5.0f}};
   status = Planner_ReplanWithPolicy(&grid, 1, near_start, goal,
       &safety, &workspace, route, MAP_GRID_CELL_COUNT, &count, &cost);
   printf("Near-line plan status=%d; START_ENTRY needs separate proof\n", (int)status);

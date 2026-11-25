@@ -27,8 +27,8 @@ destructive retention test.
 
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
-| `hybrid_planner_check` | PASS | 61716 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 67892 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check` | PASS | 61700 / 64512 B | 14784 B | 16320 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67884 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -93,8 +93,8 @@ competition finish rule, wheel/gyro calibration, route-error limit, minimum
 progress and stall/yaw mismatch durations, real brake distance, planner WCET,
 stack high-water mark, and Flash upper-page write/retention. Values in host
 tests are fixtures; they are not copied into the robot's operating config.
-The user-provided 11.3 cm overall width is used in the collision footprint;
-it has not been independently checked and exceeds the stated 10 cm rule.
+The user-corrected 13 x 10 cm overall dimensions are used in the collision
+footprint; they have not been independently checked on the assembled vehicle.
 
 ## Timing measurements prepared for SWD
 

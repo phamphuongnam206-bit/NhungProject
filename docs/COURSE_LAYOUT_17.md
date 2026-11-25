@@ -44,14 +44,13 @@ fresh 30 ms press before attempting planner control. PB1 is the reviewed PCB
 mode-button input with pull-up; this is a software start gate, not START_ENTRY.
 Its planner GOAL gate remains unverified and prevents acceptance. The host GOAL
 geometry test covers whole-body crossing only; it does not prove the vehicle
-can reach or brake after the line. `HALF_WIDTH=5.65` now follows the user's
-11.3 cm overall-width figure; `HALF_LENGTH=6.8` remains a provisional
-envelope. The user also reports a 15 cm gap between adjacent blocks, without
-identifying the particular pair. The 15 x 10 cm rule applies to the physical
-body: the reported 11.3 cm width exceeds its 10 cm limit by 1.3 cm. Software
-cannot resolve that competition-size conflict.
-The user instructed qualification to continue with 11.3 cm and the reported
-15 cm gap; this does not change the stated rule or the motor lock.
+can reach or brake after the line. The user corrected the overall dimensions
+to 13 cm along travel and 10 cm across both wheels. Thus the firmware uses
+`HALF_LENGTH=6.5` and `HALF_WIDTH=5.0`; the 1.5 cm obstacle margin is applied
+separately. The user also reports a 15 cm gap between adjacent blocks, without
+identifying the particular pair. These dimensions match the stated 15 x 10 cm
+maximum on paper but have not been independently verified on the assembled
+vehicle. The motor lock remains on.
 
 ## Software qualification
 
@@ -72,17 +71,18 @@ motor lock stays on. Do not remove footprint checks to force a direct route.
 The apparent straight corridors have almost no surveyed tolerance. At
 X=42.5 cm through T2/T3/T4 and X=162.5 cm beside T17, the nearest nominal
 block face is 7.5 cm from the tested centerline. The remaining lateral
-clearance is `7.5 - 11.3/2 - 1.5 = 0.35 cm` on that side. For a centered
+clearance is `7.5 - 10/2 - 1.5 = 1.0 cm` on that side. For a centered
 15 cm gap, this same calculation applies to both sides. This uses the
-nominal diagram and user-provided dimensions, not a surveyed safety margin. A small
-position or width error can erase it. START_ENTRY and GOAL_EXIT therefore
-still need a measured path and body dimensions before motion is authorized.
+nominal diagram and user-provided dimensions, not a surveyed safety margin.
+START_ENTRY and GOAL_EXIT still need a measured path and starting pose before
+motion is authorized.
 
 `python -m unittest discover -s tests -p 'test_course_*.py' -v` also checks
 straight, axis-aligned START and GOAL gate sweeps against all 17 nominal
-blocks and the forbidden zone. The 11.3 cm envelope fits the **nominal**
-centerlines at X=42.5 and X=162.5 with 0.35 cm lateral remainder. Shifting
-either path 0.4 cm toward its nearest block, or inserting a small dynamic
+blocks and the forbidden zone. The 10 cm body width fits the **nominal**
+centerlines at X=42.5 and X=162.5 with 1.0 cm lateral remainder after the
+existing obstacle margin. Shifting either path 1.1 cm toward its nearest
+block, or inserting a small dynamic
 block, makes the test reject that passage. This is a host geometry test only:
 it does not establish pose, heading, VL53 freshness, braking distance, or
 physical block placement, and does not activate START_ENTRY or GOAL_EXIT.
