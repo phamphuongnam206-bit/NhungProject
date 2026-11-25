@@ -1,0 +1,39 @@
+{
+  "note": "Toa do uoc luong tu anh moi, don vi cm; can doi chieu so do san that. Tat ca T1-T17 deu hien dien.",
+  "width_cm": 180,
+  "height_cm": 120,
+  "grid_cm": 2.5,
+  "robot_length_cm": 15,
+  "robot_width_cm": 10,
+  "clearance_cm": 0.5,
+  "speed_cm_s": 15,
+  "turn_speed_deg_s": 90,
+  "optimize_any_angle": true,
+  "start_cm": [30, 10],
+  "goal_cm": [130, 10],
+  "route_checkpoints": [
+    {"position_cm": [42.5, 60], "heading_deg": 90},
+    {"position_cm": [130, 60], "heading_deg": 270}
+  ],
+  "initial_heading_deg": 90,
+  "forbidden_rect_cm": [60, 0, 60, 60],
+  "obstacles": [
+    {"id": "T1", "rect_cm": [0, 10, 10, 10]},
+    {"id": "T2", "rect_cm": [50, 20, 10, 10]},
+    {"id": "T3", "rect_cm": [25, 30, 10, 10]},
+    {"id": "T4", "rect_cm": [50, 40, 10, 10]},
+    {"id": "T5", "rect_cm": [0, 50, 10, 10]},
+    {"id": "T6", "rect_cm": [0, 70, 10, 10]},
+    {"id": "T7", "rect_cm": [30, 80, 10, 10]},
+    {"id": "T8", "rect_cm": [40, 110, 10, 10]},
+    {"id": "T9", "rect_cm": [60, 70, 10, 10]},
+    {"id": "T10", "rect_cm": [70, 60, 10, 10]},
+    {"id": "T11", "rect_cm": [80, 95, 10, 10]},
+    {"id": "T12", "rect_cm": [90, 60, 10, 10]},
+    {"id": "T13", "rect_cm": [110, 110, 10, 10]},
+    {"id": "T14", "rect_cm": [120, 80, 10, 10]},
+    {"id": "T15", "rect_cm": [140, 40, 10, 10]},
+    {"id": "T16", "rect_cm": [140, 10, 10, 10]},
+    {"id": "T17", "rect_cm": [170, 20, 10, 10]}
+  ]
+}

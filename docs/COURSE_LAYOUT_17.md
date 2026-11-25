@@ -1,9 +1,9 @@
-# Course layout from supplied T1?T17 diagram
+# Course layout from supplied T1-T17 diagram
 
 The supplied image confirms 17 fixed obstacles and one additional random
 obstacle. The coordinates used in the planner branch are the estimates already
 recorded in `xe_tranh_vat_can/pc_sim/simulation_map.json`: 180 x 120 cm,
-forbidden rectangle [60,0,60,60], T1?T17 rectangles. The image does not
+forbidden rectangle [60,0,60,60], T1-T17 rectangles. The image does not
 provide surveyed coordinates; those estimates remain unverified for hardware.
 
 The planner branch builds its 5 cm MapGrid from the same MAP_BOXES rectangles
@@ -16,6 +16,8 @@ start an autonomous run without later explicit verification and valid pose.
 
 Test `python -m unittest discover -s tests -p test_course_layout.py -v`
 checks all 17 IDs and rectangle equality against the Python configuration.
+The committed test fixture is a copy of the pinned core's
+`pc_sim/simulation_map.json` at d36c524b3ae0a6c4009f875ddcefda9de39c5df8.
 Both PlatformIO environments hybrid_2laps and hybrid_planner_check build PASS.
 Planner ELF Flash span 61024/64512 B; static RAM 14448 B. Tests prove code
 agreement with the estimated configuration, not real course clearance or a

@@ -2,7 +2,7 @@ import json, re, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = json.loads((ROOT.parent / "xe_tranh_vat_can_work" / "pc_sim" / "simulation_map.json").read_text(encoding="utf-8"))
+CONFIG = json.loads((ROOT / "tests" / "fixtures" / "simulation_map.json").read_text(encoding="utf-8"))
 SOURCE = (ROOT / "src" / "hybrid_2laps.cpp").read_text()
 
 class CourseLayoutTest(unittest.TestCase):
