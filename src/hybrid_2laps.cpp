@@ -188,17 +188,18 @@ struct StartRegionConfig {
   float xmin, xmax, ymin, ymax, xyStep;
   float headingCenter, headingSpan, headingStep;
   float maxMeanError, ambiguitySlack, ambiguityDistance, ambiguityAngle;
-  bool verified;
+  volatile bool verified;
 };
 StartRegionConfig startRegion{};
-bool startMountsVerified = false;
+volatile bool startMountsVerified = false;
 float startHalfFovRad[SENSOR_COUNT] = {};
 MapCellPosition reviewedGoal{};
-bool plannerGoalVerified = false;
+volatile bool plannerGoalVerified = false;
 PlannerGoalGateConfig goalGate{}; // NEEDS_REVIEWED_FINISH_RULE
 float gyroMapYawOffsetRad = 0;
-NavBootResult startLocalizationResult{};
-uint32_t startLastFrameAt = 0;
+volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
+volatile float startLocalizationMeanErrorCm = 0;
+volatile uint32_t startLocalizationCandidates = 0;
 PlannerHealthConfig plannerHealthConfig{}; // NEEDS_MEASUREMENT
 PlannerMotionHealth plannerHealth{};
 #endif
@@ -245,7 +246,12 @@ uint32_t frameAt = 0;
 // the final pose/map authorization explicit. A route is not armed from a
 // guessed START pose or from the placeholder map.
 PlannerSnapshotLimits plannerSnapshotLimits{100, SENSOR_STALE_MS, FRAME_SKEW_MS};
+#if HYBRID_PLANNER_128K
+// Qualification keeps the runtime link path while the actual value stays 0.
+volatile bool plannerMapVerified = false;
+#else
 bool plannerMapVerified = false;
+#endif
 bool plannerPoseVerified = false;
 bool plannerRuntimeReady = false;
 bool plannerGoalReached = false;
@@ -733,19 +739,22 @@ void initPlannerDiagnosticConfig() {
   plannerGoalReached = false;
   plannerStatus = ONE_RUN_STOPPED;
 #if HYBRID_PLANNER_128K
-  startLocalizationResult = {};
-  startLocalizationResult.status = NAV_BOOT_BAD_INPUT;
-  startLastFrameAt = 0;
+  startLocalizationStatus = NAV_BOOT_BAD_INPUT;
+  startLocalizationMeanErrorCm = 0;
+  startLocalizationCandidates = 0;
+  plannerLastPollMs = 0;
   plannerHealth.reset();
 #endif
 }
 
 #if HYBRID_PLANNER_128K
 void attemptStartLocalization(uint32_t now) {
-  if (plannerPoseVerified || !plannerMapVerified || !plannerGoalVerified ||
+  if (plannerPoseVerified || !plannerMapVerified ||
       !startRegion.verified || !startMountsVerified || !frameReady ||
-      frameAt == startLastFrameAt || !wheelsSettled()) return;
-  startLastFrameAt = frameAt;
+      frameAt == plannerLastPollMs || !wheelsSettled()) return;
+  // Before runtime begins this timestamp belongs to START scan deduplication.
+  // beginPlannerRuntime replaces it with the scheduler timestamp afterwards.
+  plannerLastPollMs = frameAt;
   NavBootRect fixed[sizeof(MAP_BOXES) / sizeof(MAP_BOXES[0])] = {};
   for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); ++i) {
     fixed[i] = {MAP_BOXES[i].x - MAP_BOXES[i].hx,
@@ -785,14 +794,16 @@ void attemptStartLocalization(uint32_t now) {
                                frame[i].mm > 0U)};
     input.sample_ms[i] = frame[i].at;
   }
-  startLocalizationResult = StartLocalization_Estimate(&input);
-  if (startLocalizationResult.status != NAV_BOOT_CONFIDENT) return;
+  const NavBootResult result = StartLocalization_Estimate(&input);
+  startLocalizationStatus = result.status;
+  startLocalizationMeanErrorCm = result.mean_error_cm;
+  startLocalizationCandidates = result.candidates_checked;
+  if (result.status != NAV_BOOT_CONFIDENT) return;
   // Core heading: +X/CCW. Hybrid heading: +Y/CW.
   const float hybridYaw = remainderf(1.57079632679f -
-      startLocalizationResult.pose.theta_rad, 6.28318530718f);
+      result.pose.theta_rad, 6.28318530718f);
   gyroMapYawOffsetRad = hybridYaw - YAW_SIGN * currentYawDeg * RAD;
-  pose = {{startLocalizationResult.pose.x_cm,
-           startLocalizationResult.pose.y_cm}, hybridYaw};
+  pose = {{result.pose.x_cm, result.pose.y_cm}, hybridYaw};
   poseHistory = PlannerPoseWindow{};
   plannerPoseVerified = true;
 }
@@ -897,13 +908,14 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
     plannerStatus = ONE_RUN_STOPPED;
     return;
   }
+#if HYBRID_PLANNER_128K
+  const bool goalWasComplete = plannerStatus == ONE_RUN_COMPLETE;
+#endif
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
   if (plannerStatus == ONE_RUN_COMPLETE) {
 #if HYBRID_PLANNER_128K
-    plannerGoalReached = plannerGoalVerified &&
-        PlannerGoalGate_Complete(goalGate, true,
-        wheelsSettled(), pose.p.x, pose.p.y, pose.yaw);
-    if (!plannerGoalReached) halt("GOAL_NOT_CONFIRMED", Fault::CONTROL);
+    // Reuse the AUTO_RUN stop/plan timestamps for the GOAL quiet window.
+    if (!goalWasComplete) stoppedAt = lastPlanMs = now;
 #else
     plannerGoalReached = true;
 #endif
@@ -1516,6 +1528,29 @@ void loop() {
 #if HYBRID_PLANNER_ROUTE
   pollPlannerRuntime(now, dt, emergency);
   if (mode == RunMode::LOCKED) return;
+#if HYBRID_PLANNER_128K
+  if (plannerStatus == ONE_RUN_COMPLETE) {
+    // stopMotors resets the PI speed filter, so use actual encoder pulses.
+    // Require an 80 ms pulse-free interval before accepting the final pose.
+    if (dL != 0 || dR != 0) lastPlanMs = now;
+    plan = {};
+    stopMotors(true);
+    const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
+    const PlannerGoalDecision decision = plannerGoalVerified ?
+        PlannerGoalGate_Decide(goalGate, true, pulseQuiet,
+            uint32_t(now - stoppedAt), 500U, pose.p.x, pose.p.y, pose.yaw) :
+        PlannerGoalDecision::REJECT;
+    if (decision == PlannerGoalDecision::ACCEPT) plannerGoalReached = true;
+    else if (decision == PlannerGoalDecision::REJECT ||
+             decision == PlannerGoalDecision::TIMEOUT) {
+      halt("GOAL_NOT_CONFIRMED", Fault::CONTROL);
+      return;
+    } else {
+      status = "PLANNER_GOAL_SETTLING";
+      return;
+    }
+  }
+#endif
   if (plannerGoalReached) {
     plan = {};
     status = "PLANNER_GOAL_REACHED";

@@ -8,7 +8,7 @@ enum class PlannerHealthFault : uint8_t {
 };
 
 struct PlannerHealthConfig {
-  bool verified = false;
+  volatile bool verified = false;
   float max_cross_track_cm = 0;
   float min_command_cm_s = 0;
   float min_progress_cm = 0;
@@ -28,11 +28,11 @@ struct PlannerHealthSample {
 
 struct PlannerMotionHealth {
   PlannerHealthFault latched = PlannerHealthFault::NONE;
+  bool timing = false, left_stalling = false, right_stalling = false;
+  bool yaw_disagreeing = false;
   uint32_t progress_at_ms = 0, left_stall_at_ms = 0;
   uint32_t right_stall_at_ms = 0, yaw_error_at_ms = 0;
   float progress_mark_cm = 0;
-  bool timing = false, left_stalling = false, right_stalling = false;
-  bool yaw_disagreeing = false;
 
   void reset() { *this = PlannerMotionHealth{}; }
 

@@ -54,6 +54,11 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
         missing.update({"NavBoot_Estimate", "StartLocalization_Estimate"} - names)
     if missing:
         raise RuntimeError("Planner was not fully linked; missing: " + ", ".join(sorted(missing)))
+    if require_start_scan:
+        disassembly = subprocess.check_output([tool("objdump"), "-d", str(elf)], text=True)
+        for called in ("StartLocalization_Estimate", "PlannerRuntime_Poll"):
+            if not re.search(r"\bbl\b[^\n]*<" + called + r">", disassembly):
+                raise RuntimeError("Qualification path lacks a live call to " + called)
     storage_line = next(line for line in symbols.splitlines()
                         if line.split()[-1] == "one_run_link_storage")
     storage_size = int(storage_line.split()[1], 16)

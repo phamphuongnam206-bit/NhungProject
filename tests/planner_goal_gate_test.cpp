@@ -16,5 +16,21 @@ int main() {
   assert(!PlannerGoalGate_Complete(c, true, true, 121, 12, 3.14f));
   assert(!PlannerGoalGate_Complete(c, true, true, 150, 12, 0));
   assert(!PlannerGoalGate_Complete(c, true, true, 150, 2, 3.14f));
-  puts("PASS goal: reviewed config, mission complete, stop, footprint and heading");
+  assert(!PlannerGoalPulseQuiet(79U, 0U, 80U));
+  assert(PlannerGoalPulseQuiet(80U, 0U, 80U));
+  assert(PlannerGoalPulseQuiet(20U, UINT32_MAX - 79U, 80U));
+  assert(PlannerGoalGate_Decide(c, true, false, 30, 500, 150, 12, 3.14f) ==
+         PlannerGoalDecision::WAIT);
+  assert(PlannerGoalGate_Decide(c, true, true, 100, 500, 150, 12, 3.14f) ==
+         PlannerGoalDecision::ACCEPT);
+  assert(PlannerGoalGate_Decide(c, true, true, 100, 500, 121, 12, 3.14f) ==
+         PlannerGoalDecision::REJECT);
+  assert(PlannerGoalGate_Decide(c, true, false, 501, 500, 150, 12, 3.14f) ==
+         PlannerGoalDecision::TIMEOUT);
+  assert(PlannerGoalGate_Decide(c, false, false, 999, 500, 150, 12, 3.14f) ==
+         PlannerGoalDecision::WAIT);
+  c.verified = false;
+  assert(PlannerGoalGate_Decide(c, true, false, 30, 500, 150, 12, 3.14f) ==
+         PlannerGoalDecision::REJECT);
+  puts("PASS goal: settle, timeout, reviewed config, footprint and heading");
 }
