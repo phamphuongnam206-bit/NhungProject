@@ -22,6 +22,7 @@
 - MPU initialization now reads back filter, sample divider and gyro full-scale registers before accepting samples. The core's archived 1000 dps raw bias is not transferable to the hybrid's 500 dps configuration; the matrix marks that mismatch `CONFLICTING`.
 - The pinned, clean C11 core builds with strict host warnings and passes 12 native unit suites covering map/grid, A*, LOS/smoothing, replan, follower, wheel targets, safety, mission, sensor-map updates and START scan qualification. This validates the selected core algorithms on a host, not the PCB's timing or sensor geometry.
 - A host harness compiles the actual VL53 pause/recovery function with mocked board I/O. It checks startup timeout, immediate braking on a stale frame, no restart while wheels are unsettled, one bounded sensor restart, two distinct fresh frames before resuming, and terminal timeout. This does not measure the real sensor bus or braking distance.
+- Added a separate 64 KiB `swd_quick_encoder_mpu` diagnostic for hand-pushed 10–30 cm encoder and hand-turned 90-degree MPU checks. It keeps PB0/STBY and all bridge inputs/PWM LOW, uses neither Bluetooth nor UART, latches signed ticks and yaw in the `swd_quick` RAM symbol, and computes counts/cm only from an entered measured distance. It has not been uploaded or run on a PCB. See `docs/SWD_QUICK_ENCODER_MPU.md`.
 - Qualification stays `HYBRID_MOTOR_LOCK=1`, `HYBRID_PLANNER_INPUTS_VERIFIED=0`; default environment stays `hybrid_2laps`.
 - `hybrid_v1_staging` is a separate build target inheriting the locked 128 KiB gates and ELF checks. It has no operating authorization; a later reviewed change must supply physical evidence before any unlock.
 
@@ -34,6 +35,7 @@
 | Core repository `pc_sim` unit tests | PASS, 7 tests | Legacy Python simulation, separate from locked firmware |
 | Pinned C11 core algorithm unit suites | PASS, 12 suites | Strict host build of clean core commit `2454ca8`; no PCB timing or motor proof |
 | Firmware VL53 pause/recovery host harness | PASS | Mocked I/O; actual sensor timing and stopping distance remain unmeasured |
+| SWD quick encoder/MPU diagnostic | PASS build and host timer-wrap/distance-gate test | 21,248 / 64,512 B Flash sections; 1,240 / 20,480 B RAM static; no PCB measurement |
 | PowerShell Flash-backup mock | PASS | Verifies two reads, paths with spaces, metadata logs and absence of reset/resume/write commands; no PCB contact |
 | ARM `hybrid_planner_check`, `hybrid_planner_check_128k`, `hybrid_v1_staging` and ELF checker | PASS | Locked images, no Flash write |
 | Flash image span | 76,448 / 130,048 B | ELF load span; PlatformIO reports 76,136 B sections |
