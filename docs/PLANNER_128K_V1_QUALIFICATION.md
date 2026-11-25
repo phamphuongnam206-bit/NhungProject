@@ -17,14 +17,17 @@ environment remains `hybrid_2laps`. The core dependency for 128 KiB is pinned
 to PR #23 commit `e1898ed829205d2785ba0a136f4b6947e25778fc`.
 
 The ELF checker validates the actual load-image span, planner symbols and
-static SRAM, with at least 4096 bytes left after the linker's reserved stack
-and heap. This margin is not a measured stack high-water mark. The read-only
-Flash test is not a substitute for a destructive retention test.
+live calls into START localization and planner runtime, plus static SRAM, with
+at least 4096 bytes left after the linker's reserved stack and heap. The
+qualification flags remain false at startup; the live call paths cannot
+authorize driving without reviewed data. This margin is not a measured stack
+high-water mark. The read-only Flash test is not a substitute for a
+destructive retention test.
 
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 65980 / 130048 B | 14848 B | 16384 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 66780 / 130048 B | 14832 B | 16368 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, START adapter, route deviation, no progress, wheel stall, rotational
@@ -39,8 +42,11 @@ motor-lock variants also pass host tests. These are source/build checks only.
   while stationary, and requires a reviewed map, START search bounds, and
   sensor mounts. An ambiguous result cannot authorize a pose.
 - The planner's completion status requires a separately reviewed GOAL zone,
-  correct heading, full robot footprint inside that zone, and stopped wheels.
-  A mismatch latches a control stop. Test coordinates are synthetic fixtures.
+  correct heading, full robot footprint inside that zone, and an 80 ms interval
+  without encoder pulses after the stop command. If settling takes over 500 ms
+  or the zone is wrong, the control stop latches. These timing limits are
+  conservative software gates; physical stopping distance still needs a
+  measured test. Test coordinates are synthetic fixtures.
 - Route deviation, no progress, left/right stall and rotational wheel/gyro
   disagreement latch a control stop. Translational wheel slip is **not**
   directly observable from encoders plus gyro alone; external pose evidence
@@ -61,7 +67,8 @@ tests are fixtures; they are not copied into the robot's operating config.
 1. Leave the motor battery disconnected. Inspect the PCB supply and measure
    PB0/STBY near 0 V while ST-Link supplies the logic rail. Do not upload this
    image until a separate physical Flash test strategy is agreed.
-2. With the motor lock still on, inspect `startLocalizationResult.status`,
+2. With the motor lock still on, inspect `startLocalizationStatus`,
+   `startLocalizationMeanErrorCm`, `startLocalizationCandidates`,
    `plannerPoseVerified`, `plannerStatus`, `plannerGoalReached`, and
    `plannerHealth.latched` in an SWD debug session. PASS for this locked stage:
    no motor motion, STBY LOW, no unverified route or GOAL accepted.
