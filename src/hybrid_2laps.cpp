@@ -21,6 +21,7 @@
 #include "planner_runtime.h"
 #include "planner_snapshot.h"
 #include "planner_pose_window.h"
+#include "planner_range_ready.h"
 #include "map_grid.h"
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -99,6 +100,7 @@ struct Point { float x, y; };
 struct Pose { Point p; float yaw; };  // 0 = len map (+Y); duong = quay phai.
 #if HYBRID_PLANNER_ROUTE
 PlannerPoseWindow poseHistory;
+PlannerRangeReadyTracker rangeReadyTracker;
 #endif
 // Toa do sa hinh (cm), goc o goc trai duoi. Khung trong cua bang den:
 constexpr float MAP_LEFT = 5.0f, MAP_RIGHT = 175.0f;
@@ -477,6 +479,7 @@ bool initArcSensors(bool restartBus = false) {
   frameAt = 0;
 #if HYBRID_PLANNER_ROUTE
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) lastRangeResultMs[i] = 0;
+  rangeReadyTracker.reset();
 #endif
 
   uint8_t missingAtInit = 0;
@@ -549,7 +552,15 @@ void pollRange() {
     noteRangeReadError(i);
     return;
   }
-  if (!(ready & 7)) return;
+  if (!(ready & 7)) {
+#if HYBRID_PLANNER_ROUTE
+    rangeReadyTracker.noteNotReady(i, millis());
+#endif
+    return;
+  }
+#if HYBRID_PLANNER_ROUTE
+  rangeReadyTracker.noteReady(i, millis());
+#endif
 
   uint8_t raw[2] = {};
   if (!readRangeRegisters(i, VL53L0X::RESULT_RANGE_STATUS + 10, raw, 2)) {
