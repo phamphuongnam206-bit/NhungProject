@@ -50,8 +50,8 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
     symbols = subprocess.check_output([tool("nm"), "-S", "--defined-only", str(elf)], text=True)
     names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     missing = REQUIRED - names
-    if require_start_scan and "NavBoot_Estimate" not in names:
-        missing.add("NavBoot_Estimate")
+    if require_start_scan:
+        missing.update({"NavBoot_Estimate", "StartLocalization_Estimate"} - names)
     if missing:
         raise RuntimeError("Planner was not fully linked; missing: " + ", ".join(sorted(missing)))
     storage_line = next(line for line in symbols.splitlines()

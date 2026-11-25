@@ -13,6 +13,12 @@
 #ifndef HYBRID_PLANNER_INPUTS_VERIFIED
 #define HYBRID_PLANNER_INPUTS_VERIFIED 0
 #endif
+#ifndef HYBRID_PLANNER_128K
+#define HYBRID_PLANNER_128K 0
+#endif
+#if HYBRID_PLANNER_128K && HYBRID_PLANNER_INPUTS_VERIFIED
+#error "128 KiB qualification must keep planner inputs unverified"
+#endif
 #if HYBRID_PLANNER_ROUTE
 #if !HYBRID_MOTOR_LOCK
 #error "Planner route integration is diagnostic only and requires motor lock"
@@ -23,6 +29,11 @@
 #include "planner_pose_window.h"
 #include "planner_range_ready.h"
 #include "map_grid.h"
+#if HYBRID_PLANNER_128K
+#include "start_localization.h"
+#include "planner_motion_health.h"
+#include "planner_goal_gate.h"
+#endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
 
@@ -170,6 +181,27 @@ RunMode mode = RunMode::WAIT_SENSORS;
 Fault fault = Fault::NONE;
 const char *status = "START";
 Pose pose{MAP_START, 0};
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+// These values require surveyed START bounds, mount/FOV measurements and a
+// reviewed finish rule. Empty defaults cannot authorize a global pose.
+struct StartRegionConfig {
+  float xmin, xmax, ymin, ymax, xyStep;
+  float headingCenter, headingSpan, headingStep;
+  float maxMeanError, ambiguitySlack, ambiguityDistance, ambiguityAngle;
+  bool verified;
+};
+StartRegionConfig startRegion{};
+bool startMountsVerified = false;
+float startHalfFovRad[SENSOR_COUNT] = {};
+MapCellPosition reviewedGoal{};
+bool plannerGoalVerified = false;
+PlannerGoalGateConfig goalGate{}; // NEEDS_REVIEWED_FINISH_RULE
+float gyroMapYawOffsetRad = 0;
+NavBootResult startLocalizationResult{};
+uint32_t startLastFrameAt = 0;
+PlannerHealthConfig plannerHealthConfig{}; // NEEDS_MEASUREMENT
+PlannerMotionHealth plannerHealth{};
+#endif
 bool leavingStartLine = true;
 
 float pathS[ROUTE_COUNT] = {};
@@ -673,7 +705,11 @@ float square(float x) { return x * x; }
 
 void updatePose(int32_t l, int32_t r) {
   const float ds = (l / MAP_COUNTS_CM_L + r / MAP_COUNTS_CM_R) * 0.5f;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  const float yaw = gyroMapYawOffsetRad + YAW_SIGN * currentYawDeg * RAD;
+#else
   const float yaw = YAW_SIGN * currentYawDeg * RAD;
+#endif
   const float avg = (pose.yaw + yaw) * 0.5f;
   pose.p.x += ds * sinf(avg);
   pose.p.y += ds * cosf(avg);
@@ -686,12 +722,81 @@ void initPlannerDiagnosticConfig() {
   plannerPoseVerified = false;
 #if HYBRID_PLANNER_INPUTS_VERIFIED
   plannerMapVerified = true;
+#if !HYBRID_PLANNER_128K
   plannerPoseVerified = true;
+#endif
+#endif
+#if HYBRID_PLANNER_128K
+  plannerGoalVerified = false;
 #endif
   plannerRuntimeReady = false;
   plannerGoalReached = false;
   plannerStatus = ONE_RUN_STOPPED;
+#if HYBRID_PLANNER_128K
+  startLocalizationResult = {};
+  startLocalizationResult.status = NAV_BOOT_BAD_INPUT;
+  startLastFrameAt = 0;
+  plannerHealth.reset();
+#endif
 }
+
+#if HYBRID_PLANNER_128K
+void attemptStartLocalization(uint32_t now) {
+  if (plannerPoseVerified || !plannerMapVerified || !plannerGoalVerified ||
+      !startRegion.verified || !startMountsVerified || !frameReady ||
+      frameAt == startLastFrameAt || !wheelsSettled()) return;
+  startLastFrameAt = frameAt;
+  NavBootRect fixed[sizeof(MAP_BOXES) / sizeof(MAP_BOXES[0])] = {};
+  for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); ++i) {
+    fixed[i] = {MAP_BOXES[i].x - MAP_BOXES[i].hx,
+                MAP_BOXES[i].y - MAP_BOXES[i].hy,
+                2.0f * MAP_BOXES[i].hx, 2.0f * MAP_BOXES[i].hy};
+  }
+  StartLocalizationInput input{};
+  auto &scan = input.scan;
+  scan.arena_width_cm = 180.0f;
+  scan.arena_height_cm = 120.0f;
+  scan.blocked = fixed;
+  scan.blocked_count = sizeof(fixed) / sizeof(fixed[0]);
+  scan.robot_length_cm = 2.0f * HALF_LENGTH;
+  scan.robot_width_cm = 2.0f * HALF_WIDTH;
+  scan.body_margin_cm = 0.5f;
+  scan.xmin_cm = startRegion.xmin; scan.xmax_cm = startRegion.xmax;
+  scan.ymin_cm = startRegion.ymin; scan.ymax_cm = startRegion.ymax;
+  scan.xy_step_cm = startRegion.xyStep;
+  scan.heading_center_rad = startRegion.headingCenter;
+  scan.heading_span_rad = startRegion.headingSpan;
+  scan.heading_step_rad = startRegion.headingStep;
+  scan.max_mean_error_cm = startRegion.maxMeanError;
+  scan.ambiguity_slack_cm = startRegion.ambiguitySlack;
+  scan.ambiguity_distance_cm = startRegion.ambiguityDistance;
+  scan.ambiguity_angle_rad = startRegion.ambiguityAngle;
+  input.now_ms = now;
+  input.course_verified = plannerMapVerified;
+  input.start_region_verified = startRegion.verified;
+  input.mounts_verified = startMountsVerified;
+  input.stationary = true;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    // Hybrid mounting angle is clockwise; core yaw is counterclockwise.
+    input.ranges[i] = {BEAMS[i].forward, -BEAMS[i].right,
+                       -BEAMS[i].angleDeg * RAD, startHalfFovRad[i],
+                       RANGE_OPEN_MM * 0.1f, frame[i].mm * 0.1f,
+                       uint8_t(vlReady[i] && frame[i].stableOrigin &&
+                               frame[i].mm > 0U)};
+    input.sample_ms[i] = frame[i].at;
+  }
+  startLocalizationResult = StartLocalization_Estimate(&input);
+  if (startLocalizationResult.status != NAV_BOOT_CONFIDENT) return;
+  // Core heading: +X/CCW. Hybrid heading: +Y/CW.
+  const float hybridYaw = remainderf(1.57079632679f -
+      startLocalizationResult.pose.theta_rad, 6.28318530718f);
+  gyroMapYawOffsetRad = hybridYaw - YAW_SIGN * currentYawDeg * RAD;
+  pose = {{startLocalizationResult.pose.x_cm,
+           startLocalizationResult.pose.y_cm}, hybridYaw};
+  poseHistory = PlannerPoseWindow{};
+  plannerPoseVerified = true;
+}
+#endif
 
 void fillPlannerConfig(OneRunConfig &config) {
   config = {};
@@ -713,13 +818,21 @@ void fillPlannerConfig(OneRunConfig &config) {
     };
   }
   config.replan = {100U, 2U, 2U};
-  // The finish cell is a fixture only until the official map/rule is supplied.
+#if HYBRID_PLANNER_128K
+  config.goal = reviewedGoal;
+#else
+  // 64 KiB qualification baseline preserves its historical fixture.
   config.goal = {1U, 30U};
+#endif
   config.inflation_cells = 1U;
 }
 
 bool beginPlannerRuntime() {
+#if HYBRID_PLANNER_128K
+  if (!plannerMapVerified || !plannerPoseVerified || !plannerGoalVerified) return false;
+#else
   if (!plannerMapVerified || !plannerPoseVerified) return false;
+#endif
   MapGrid baseMap{};
   OneRunConfig config{};
   if (MapGrid_InitBase(&baseMap) != MAP_GRID_OK) return false;
@@ -741,6 +854,9 @@ bool beginPlannerRuntime() {
 }
 
 void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
+#if HYBRID_PLANNER_128K
+  attemptStartLocalization(now);
+#endif
   if (!plannerMapVerified || !plannerPoseVerified) return;
   if (!plannerRuntimeReady) {
     if (!beginPlannerRuntime()) {
@@ -782,7 +898,16 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
     return;
   }
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
-  if (plannerStatus == ONE_RUN_COMPLETE) plannerGoalReached = true;
+  if (plannerStatus == ONE_RUN_COMPLETE) {
+#if HYBRID_PLANNER_128K
+    plannerGoalReached = plannerGoalVerified &&
+        PlannerGoalGate_Complete(goalGate, true,
+        wheelsSettled(), pose.p.x, pose.p.y, pose.yaw);
+    if (!plannerGoalReached) halt("GOAL_NOT_CONFIRMED", Fault::CONTROL);
+#else
+    plannerGoalReached = true;
+#endif
+  }
   if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE && plannerStatus != ONE_RUN_STOPPED) {
     PlannerRuntime_Invalidate();
     plannerRuntimeReady = false;
@@ -1350,6 +1475,9 @@ void loop() {
   int32_t dL, dR;
   updateEncoders(dL, dR);
   lastEncoderSampleMs = now;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  const float oldYaw = pose.yaw;
+#endif
   updatePose(dL, dR);
 #if HYBRID_PLANNER_ROUTE
   poseHistory.record({pose.p.x, pose.p.y, pose.yaw, now});
@@ -1387,6 +1515,7 @@ void loop() {
   const bool emergency = frontEmergency(frontClearance, forwardSpeed);
 #if HYBRID_PLANNER_ROUTE
   pollPlannerRuntime(now, dt, emergency);
+  if (mode == RunMode::LOCKED) return;
   if (plannerGoalReached) {
     plan = {};
     status = "PLANNER_GOAL_REACHED";
@@ -1412,6 +1541,25 @@ void loop() {
     motion = plan;
     safeArc = slewSafeCurve(motion, forwardSpeed, motorDt, now);
   }
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  if (plannerStatus == ONE_RUN_OK && motion.speed > 0.0f) {
+    PlannerHealthSample healthSample{};
+    healthSample.now_ms = now;
+    healthSample.cross_track_cm = plannerRouteTarget.cross_track_cm;
+    healthSample.route_progress_cm = plannerRouteTarget.progress_cm;
+    healthSample.command_cm_s = commandedSpeed;
+    healthSample.left_cm = dL / MAP_COUNTS_CM_L;
+    healthSample.right_cm = dR / MAP_COUNTS_CM_R;
+    healthSample.gyro_delta_rad = remainderf(pose.yaw - oldYaw,
+                                              6.28318530718f);
+    healthSample.route_active = true;
+    if (plannerHealth.update(plannerHealthConfig, healthSample) !=
+        PlannerHealthFault::NONE) {
+      halt("PLANNER_HEALTH_STOP", Fault::CONTROL);
+      return;
+    }
+  }
+#endif
   // Con co the lua cung tranh o toc do bo khi front chi vua qua nguong khan cap.
   const float frontLimit = fmaxf(5.0f, frontSpeedLimit(frontClearance));
   float speed = fminf(motion.speed, frontLimit);

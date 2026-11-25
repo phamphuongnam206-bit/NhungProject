@@ -35,3 +35,17 @@ with tempfile.TemporaryDirectory(prefix='nhung_runtime_') as folder:
                     str(root/'src/planner_snapshot.cpp'), *objects,
                     '-o', str(snapshot)], check=True)
     subprocess.run([str(snapshot)], check=True)
+    start = Path(folder) / 'start_localization.exe'
+    subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-I' + str(root/'include'), '-I' + str(a.core/'Core/Inc'),
+                    str(root/'tests/start_localization_test.cpp'),
+                    str(root/'src/start_localization.cpp'), *objects,
+                    '-o', str(start)], check=True)
+    subprocess.run([str(start)], check=True)
+    for name in ('planner_motion_health', 'planner_goal_gate'):
+        test = Path(folder) / (name + '.exe')
+        subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                        '-I' + str(root/'include'),
+                        str(root/'tests'/(name + '_test.cpp')),
+                        '-o', str(test)], check=True)
+        subprocess.run([str(test)], check=True)
