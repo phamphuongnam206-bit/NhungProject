@@ -173,6 +173,7 @@ PlannerSnapshotLimits plannerSnapshotLimits{100, SENSOR_STALE_MS, FRAME_SKEW_MS}
 bool plannerMapVerified = false;
 bool plannerPoseVerified = false;
 bool plannerRuntimeReady = false;
+bool plannerGoalReached = false;
 uint32_t plannerLastPollMs = 0;
 OneRunStatus plannerStatus = ONE_RUN_STOPPED;
 #endif
@@ -552,6 +553,7 @@ void initPlannerDiagnosticConfig() {
   plannerPoseVerified = true;
 #endif
   plannerRuntimeReady = false;
+  plannerGoalReached = false;
   plannerStatus = ONE_RUN_STOPPED;
 }
 
@@ -626,6 +628,7 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
     return;
   }
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
+  if (plannerStatus == ONE_RUN_COMPLETE) plannerGoalReached = true;
   if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE) {
     plannerRuntimeReady = false;
   }
@@ -1180,6 +1183,15 @@ void loop() {
   const bool emergency = frontEmergency(frontClearance, forwardSpeed);
 #if HYBRID_PLANNER_ROUTE
   pollPlannerRuntime(now, dt, emergency);
+  if (plannerGoalReached) {
+    plan = {};
+    status = "PLANNER_GOAL_REACHED";
+    stopMotors(true);
+    mode = RunMode::FINISHED;
+    stoppedAt = now;
+    digitalWrite(LED_PIN, LOW);
+    return;
+  }
 #endif
   if (now - lastPlanMs >= 30) {
     lastPlanMs = now;

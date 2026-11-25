@@ -14,6 +14,11 @@ authorize a route from `MAP_START`, guessed calibration, or the placeholder
 map. Setting this flag requires a reviewed course map and verified pose and
 calibration. The motor lock remains required by the planner-route build.
 
+When the runtime reports `ONE_RUN_COMPLETE`, the hybrid loop clears its motion
+target, applies the locked stop path, and enters `FINISHED`. The old fixed-route
+finish test remains disabled for planner mode until the official finish gate
+and competition rule are confirmed.
+
 ## Verification
 
 - `hybrid_planner_check` ARM build passed.
