@@ -82,8 +82,13 @@ fixture's distances and pose are synthetic source/build checks only.
   full-footprint policy rejects the near-line start as `PLANNER_UNSAFE_TURN`,
   but passes from a farther interior fixture at (42.5,52.5) cm. The
   START_ENTRY segment needed to reach that area is not qualified, so the
-  whole run remains an open V1 safety blocker. START_ENTRY and GOAL_EXIT are
-  not wired into the locked runtime. The PB1
+  whole run remains an open V1 safety blocker. The 128 KiB runtime now has a
+  START handoff guard: the surveyed start region must be verified, the full
+  13 x 10 cm body must be inside the x=0..60 cm gate and past y=0, yaw must
+  face +Y within the reviewed tolerance, pose/ranges must be fresh, wheels
+  must be stopped, and the current footprint must pass local collision checks.
+  This guard does not supply a path or drive the car from behind the line;
+  START_ENTRY motion and GOAL_EXIT remain unimplemented. The PB1
   start-button software gate now requires release then press, but has no
   physical PCB test; see `COURSE_LAYOUT_17.md`.
 

@@ -33,6 +33,7 @@
 #include "start_localization.h"
 #include "planner_motion_health.h"
 #include "planner_goal_gate.h"
+#include "planner_start_entry.h"
 #endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -882,9 +883,33 @@ void fillPlannerConfig(OneRunConfig &config) {
   config.inflation_cells = 1U;
 }
 
+// Defined below with the local-arc collision checks.
+bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkHits);
+
 bool beginPlannerRuntime() {
 #if HYBRID_PLANNER_128K
   if (!plannerMapVerified || !plannerPoseVerified || !plannerGoalVerified) return false;
+  const uint32_t now = millis();
+  PlannerStartEntryConfig handoff{};
+  handoff.verified = startRegion.verified && startMountsVerified;
+  handoff.gate_xmin_cm = 0.0f;
+  handoff.gate_xmax_cm = 60.0f;
+  handoff.line_y_cm = 0.0f;
+  handoff.half_length_cm = HALF_LENGTH;
+  handoff.half_width_cm = HALF_WIDTH;
+  handoff.heading_tolerance_rad = startRegion.headingSpan;
+  const bool poseFresh = gyroReady && now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+                         now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+  bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    rangesFresh &= vlReady[i] && frame[i].mm != 0U &&
+                   now - frame[i].at <= SENSOR_STALE_MS;
+  }
+  if (!PlannerStartEntry_HandoffPermitted(
+          handoff, plannerPoseVerified, poseFresh, rangesFresh,
+          wheelsSettled(), footprintFree(pose.p.x, pose.p.y,
+              sinf(pose.yaw), cosf(pose.yaw), now, true),
+          pose.p.x, pose.p.y, pose.yaw)) return false;
 #else
   if (!plannerMapVerified || !plannerPoseVerified) return false;
 #endif
