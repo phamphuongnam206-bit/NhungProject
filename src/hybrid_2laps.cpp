@@ -200,6 +200,8 @@ float gyroMapYawOffsetRad = 0;
 volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
 volatile float startLocalizationMeanErrorCm = 0;
 volatile uint32_t startLocalizationCandidates = 0;
+volatile uint32_t startScanMaxCycles = 0;
+volatile uint32_t plannerPollMaxCycles = 0;
 PlannerHealthConfig plannerHealthConfig{}; // NEEDS_MEASUREMENT
 PlannerMotionHealth plannerHealth{};
 #endif
@@ -734,6 +736,8 @@ void initPlannerDiagnosticConfig() {
 #endif
 #if HYBRID_PLANNER_128K
   plannerGoalVerified = false;
+  startScanMaxCycles = 0;
+  plannerPollMaxCycles = 0;
 #endif
   plannerRuntimeReady = false;
   plannerGoalReached = false;
@@ -748,6 +752,18 @@ void initPlannerDiagnosticConfig() {
 }
 
 #if HYBRID_PLANNER_128K
+void initPlannerCycleCounter() {
+  // Cortex-M3 DWT CYCCNT: diagnostic only, never authorizes motion.
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0U;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+void recordPlannerCycles(volatile uint32_t &maximum, uint32_t started) {
+  const uint32_t elapsed = DWT->CYCCNT - started; // wraps modulo 2^32
+  if (elapsed > maximum) maximum = elapsed;
+}
+
 void attemptStartLocalization(uint32_t now) {
   if (plannerPoseVerified || !plannerMapVerified ||
       !startRegion.verified || !startMountsVerified || !frameReady ||
@@ -794,7 +810,9 @@ void attemptStartLocalization(uint32_t now) {
                                frame[i].mm > 0U)};
     input.sample_ms[i] = frame[i].at;
   }
+  const uint32_t started = DWT->CYCCNT;
   const NavBootResult result = StartLocalization_Estimate(&input);
+  recordPlannerCycles(startScanMaxCycles, started);
   startLocalizationStatus = result.status;
   startLocalizationMeanErrorCm = result.mean_error_cm;
   startLocalizationCandidates = result.candidates_checked;
@@ -911,7 +929,13 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
 #if HYBRID_PLANNER_128K
   const bool goalWasComplete = plannerStatus == ONE_RUN_COMPLETE;
 #endif
+#if HYBRID_PLANNER_128K
+  const uint32_t started = DWT->CYCCNT;
+#endif
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
+#if HYBRID_PLANNER_128K
+  recordPlannerCycles(plannerPollMaxCycles, started);
+#endif
   if (plannerStatus == ONE_RUN_COMPLETE) {
 #if HYBRID_PLANNER_128K
     // Reuse the AUTO_RUN stop/plan timestamps for the GOAL quiet window.
@@ -1366,6 +1390,9 @@ void setup() {
   initRoute();
 #else
   initPlannerDiagnosticConfig();
+#if HYBRID_PLANNER_128K
+  initPlannerCycleCounter();
+#endif
 #endif
   initHardwareEncoders();
   if (!initArcSensors()) { halt("VL53_INIT_FAIL", Fault::SENSOR); return; }

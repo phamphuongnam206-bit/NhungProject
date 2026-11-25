@@ -27,7 +27,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 66780 / 130048 B | 14832 B | 16368 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 66876 / 130048 B | 14840 B | 16376 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, START adapter, route deviation, no progress, wheel stall, rotational
@@ -61,6 +61,24 @@ competition finish rule, wheel/gyro calibration, route-error limit, minimum
 progress and stall/yaw mismatch durations, real brake distance, planner WCET,
 stack high-water mark, and Flash upper-page write/retention. Values in host
 tests are fixtures; they are not copied into the robot's operating config.
+
+## Timing measurements prepared for SWD
+
+The 128 KiB build enables the Cortex-M3 DWT cycle counter at setup and records
+`startScanMaxCycles` around the real START scan and `plannerPollMaxCycles`
+around the real planner poll. Both are monotonic maxima and stay zero until
+reviewed inputs allow those functions to execute. In VS Code or another SWD
+debugger, watch those two variables and `SystemCoreClock`; convert to
+milliseconds as `cycles * 1000 / SystemCoreClock`. Check that
+`CoreDebug->DEMCR` bit 24 and `DWT->CTRL` bit 0 are set. This is observation,
+not an automatic timing PASS. The two values do not include local-arc scoring,
+I2C, serial I/O, interrupt interference or the whole control-loop WCET.
+
+PASS before motor unlock requires real PCB measurements demonstrating that
+planner timing and total loop timing fit the motor-lease and control-loop
+deadlines with margin. Zero maxima or measurements only on a host are
+**unmeasured**. FAIL if DWT does not count, timing exceeds the approved budget,
+or the independent STBY lease fails to cut motor power when the loop stalls.
 
 ## First on-vehicle acceptance sequence
 
