@@ -8,7 +8,7 @@ States: `VERIFIED` means the value has evidence for this assembled robot and the
 | Right counts/cm, J12 TIM2 | 54.58 inferred the same way; compiled placeholder 45 | CONFLICTING | Same ground test |
 | Left/right forward encoder signs | Hand-turn logs do not establish motor forward sign; core log's `sign=1` had zero counters | NEEDS_MEASUREMENT | Forward movement with both signed tick deltas |
 | Effective wheel track | Reported 9 cm center spacing is not effective turning track | NEEDS_MEASUREMENT | Ground turning calibration |
-| Body length/width | User-reported assembled 13 × 10 cm; recorded in central calibration header | NEEDS_REVIEW | Recheck assembled footprint including protrusions |
+| Body length/width | User-confirmed assembled 13 × 10 cm; recorded as verified in central calibration header | VERIFIED | Recheck protrusions before physical clearance acceptance |
 | Gyro sign | MPU yaw manual log exists; firmware sign needs matching mount and axis review | NEEDS_REVIEW | Match signed physical rotation to firmware yaw |
 | Gyro bias/drift | Core `mpu6050_bias_1000dps.json` records raw bias ≈ -3.698 for a prior test | NEEDS_REVIEW | Confirm same sensor/range/temp and unit conversion; measure drift on PCB |
 | Lowest stable speed / safe maximum speed | Hardcoded control limits are design settings | NEEDS_MEASUREMENT | Controlled floor test |

@@ -10,6 +10,7 @@
 ## Completed software work
 
 - Audited the live START_ENTRY → C11 A* → FOLLOWING → stopped dynamic replan → GOAL_EXIT path and the existing host fixtures. The nominal 17-block course has a valid route from the *interior test pose* (42.5,52.5), but the blocked first corridor produces a safe no-path fault; neither is a full physical run.
+- Added a synthetic boundary-to-boundary host integration case: surveyed START-entry geometry, C11 waypoint trace to interior GOAL, and full-body GOAL-exit completion. It also checks both swept fixed-obstacle corridors. This pose trace is imposed by the test and does not establish controller dynamics or real sensor response.
 - Fixed P0: a terminal planner error now calls `halt("PLANNER_FAULT", Fault::CONTROL)` after invalidating the runtime. Previously the next loop could call `PlannerRuntime_Begin` again because only `plannerRuntimeReady` was cleared. `LOCKED` is latched until reset; the loop cannot consume a cached plan in this mode.
 - Qualification stays `HYBRID_MOTOR_LOCK=1`, `HYBRID_PLANNER_INPUTS_VERIFIED=0`; default environment stays `hybrid_2laps`.
 
@@ -29,6 +30,7 @@
 - **P0:** Upper 64 KiB Flash write, alias and power-cycle retention are unverified. Keep 64 KiB fallback. A locked 128 KiB image must not be uploaded until Flash acceptance.
 - **P0:** START and GOAL surveyed coordinates, sensor mounts/FOV, ground wheel calibration, brake distance, planner timing/stack and PB0 lease on the PCB are missing. START_ENTRY/GOAL_EXIT motion constants intentionally remain zero.
 - **P1:** Four possible random-obstacle positions are unknown (`NEEDS_MEASUREMENT`). Dynamic mapping is available, but traversability of all four cases is unproven.
+- The four case IDs are recorded in `tests/fixtures/random_obstacle_cases.json` with null coordinates. They cannot be treated as official positions by a test or runtime.
 - **P2:** DWT maxima exist for START scan, planner poll and full loop; stack high-water, separate A*/mapping/local-arc timing and interrupt nesting still need an instrumented PCB session.
 - **P3:** Speed optimization waits until safe full-course completion.
 
