@@ -27,7 +27,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 66876 / 130048 B | 14840 B | 16376 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 66892 / 130048 B | 14840 B | 16376 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, START adapter, route deviation, no progress, wheel stall, rotational
@@ -48,9 +48,10 @@ motor-lock variants also pass host tests. These are source/build checks only.
   conservative software gates; physical stopping distance still needs a
   measured test. Test coordinates are synthetic fixtures.
 - Route deviation, no progress, left/right stall and rotational wheel/gyro
-  disagreement latch a control stop. Translational wheel slip is **not**
-  directly observable from encoders plus gyro alone; external pose evidence
-  is required to claim that feature.
+  disagreement latch a control stop. A safety pause or replan clears the old
+  route's progress timer before monitoring the new path. Translational wheel
+  slip is **not** directly observable from encoders plus gyro alone; external
+  pose evidence is required to claim that feature.
 - The existing A*, Pure Pursuit, dynamic sensor map, replan policy, local arc,
   independent watchdog and STBY motor lease remain in the image. Their
   timing and behavior on this PCB have not been requalified by this build.

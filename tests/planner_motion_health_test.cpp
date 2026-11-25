@@ -46,5 +46,10 @@ int main() {
   assert(h.update(c,s) == PlannerHealthFault::YAW_DISAGREEMENT);
   h.reset(); s = sample(100U); s.route_active = false;
   assert(h.update(c,s) == PlannerHealthFault::NONE);
+  // A fresh route after a safety pause starts progress timing from its own 0.
+  h.reset(); s = sample(100U);
+  assert(h.update(c,s) == PlannerHealthFault::NONE);
+  h.reset(); s.now_ms = 900U; s.route_progress_cm = 0.0f;
+  assert(h.update(c,s) == PlannerHealthFault::NONE);
   puts("PASS route deviation, no progress, wheel stalls and yaw disagreement");
 }

@@ -1588,6 +1588,11 @@ void loop() {
     return;
   }
   if (plannerStatus != ONE_RUN_OK) plan = {};
+#if HYBRID_PLANNER_128K
+  // A pause/replan changes the route origin. Its previous progress timer
+  // cannot be used to judge the next route.
+  if (plannerStatus != ONE_RUN_OK) plannerHealth.reset();
+#endif
 #endif
   if (now - lastPlanMs >= 30) {
     lastPlanMs = now;
@@ -1620,7 +1625,7 @@ void loop() {
       halt("PLANNER_HEALTH_STOP", Fault::CONTROL);
       return;
     }
-  }
+  } else plannerHealth.reset();
 #endif
   // Con co the lua cung tranh o toc do bo khi front chi vua qua nguong khan cap.
   const float frontLimit = fmaxf(5.0f, frontSpeedLimit(frontClearance));
