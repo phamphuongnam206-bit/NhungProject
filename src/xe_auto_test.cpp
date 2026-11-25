@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "map_one_run_calibration.h"
 
 #ifndef ONE_RUN_CALIBRATED
 #define ONE_RUN_CALIBRATED 1
@@ -20,7 +21,6 @@
 #endif
 
 #ifdef MAP_ONE_RUN
-#include "map_one_run_calibration.h"
 #if ONE_RUN_CALIBRATED != 0
 #error "map_one_run must remain motor-locked until calibration and safety gates pass"
 #endif
@@ -32,9 +32,12 @@ constexpr float PI = 3.14159265359f;
 constexpr float DEG = PI / 180.0f;
 constexpr float START_X_MM = 300, START_Y_MM = 100;
 constexpr float MAP_WIDTH_MM = 1800, MAP_HEIGHT_MM = 1200;
-constexpr float BODY_LENGTH_MM = 120, BODY_WIDTH_MM = 100, TRACK_MM = 120;
-constexpr float COUNTS_PER_MM_L = 10, COUNTS_PER_MM_R = 10; // x4, gia tri uoc luong tu xe_full
-constexpr float GYRO_SIGN = 1;
+constexpr float BODY_LENGTH_MM = 120, BODY_WIDTH_MM = 100;
+constexpr float TRACK_MM = MapOneRunCalibration::steeringTrackCm * 10.0f;
+constexpr float COUNTS_PER_MM_L = MapOneRunCalibration::leftCountsPerCm / 10.0f;
+constexpr float COUNTS_PER_MM_R = MapOneRunCalibration::rightCountsPerCm / 10.0f;
+// This legacy controller computes wheel yaw as (right - left) / track (CCW).
+constexpr float GYRO_SIGN = -MapOneRunCalibration::hybridYawSign;
 constexpr float MARGIN_MM = 17, MAX_DRIFT_MARGIN_MM = 24;
 constexpr float SLOW_RANGE_MM = 250, FRONT_STOP_MM = 110, FRONT_RESUME_MM = 125;
 constexpr float MIN_RANGE_MM = 45, MIN_FORWARD_MM = 80, LOOKAHEAD_MM = 320;
@@ -437,7 +440,8 @@ constexpr uint32_t MOTOR_IN1[] = {PB14, PB12}, MOTOR_IN2[] = {PB15, PB13};
 constexpr uint32_t MOTOR_PWM[] = {PB9, PB8};
 constexpr uint32_t XSHUT[] = {PA2, PA3, PA4, PA5};
 constexpr uint8_t ADDRESS[] = {0x30, 0x31, 0x32, 0x33};
-constexpr int ENCODER_SIGN[] = {-1, 1};
+constexpr int ENCODER_SIGN[] = {MapOneRunCalibration::leftEncoderSign,
+                                MapOneRunCalibration::rightEncoderSign};
 constexpr uint32_t RANGE_BUDGET_US = 33000;
 constexpr float RANGE_OFFSET_MM[] = {0, -15, -15, 0};
 

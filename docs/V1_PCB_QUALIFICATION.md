@@ -1,6 +1,14 @@
 # Locked V1 PCB qualification sequence
 
-This sequence uses the locked `hybrid_planner_check_128k` image only after the Flash gate in `FLASH_128K_ACCEPTANCE.md` passes. Motor supply stays disconnected. No result here unlocks motor motion.
+## Short 64 KiB bench session
+
+Use the already installed `swd_quick_encoder_mpu` to get effective track without another Flash write. With motor supply disconnected, keep the wheels on the test surface and mark a right angle. Record the TIM3 left and TIM2 right counter values over SWD before and after one hand turn of exactly 90°. Compute signed counter differences with 16-bit wrap and the firmware directions −1 left, +1 right. Record the physical turn direction and both raw endpoints. Convert each signed delta separately, using `L / 56.66` and `R / 51.24` in cm. Divide the absolute difference of the two distances by π/2 to estimate effective track in cm. A slip or a wheel lifted from the floor invalidates the trial. Mechanical spacing is 9 cm.
+
+For the next integrated board session use `hybrid_planner_check` with motor supply disconnected, after a separately authorized installation. This image fits in 64 KiB and exercises encoder, MPU, VL53, local safety and locked planner support. Observe PB0 LOW, `prevRawL`, `prevRawR`, `totalLeft`, `totalRight`, `pose.yaw`, `currentYawDeg`, and `frame` over SWD. In one manual forward push, verify both signed counts increase. With the nose initially facing the same direction as before, turn right and verify hybrid yaw increases. Confirm that all four range timestamps advance while stationary and placing a target in front updates the appropriate front channels. The measured scales are already available from the three logged pushes. A stale sensor or route fault must keep STBY LOW. Stop after gathering the raw trace.
+
+## Full V1 session after the Flash gate
+
+The full START localization, START_ENTRY and GOAL_EXIT sequence uses the locked `hybrid_planner_check_128k` image after the Flash gate in `FLASH_128K_ACCEPTANCE.md` passes. The 64 KiB bench build omits those phases. Motor supply stays disconnected for this stage.
 
 1. Measure PB0/STBY at boot, reset, watchdog reset and steady loop. PASS: LOW throughout the locked image; any HIGH pulse is FAIL. Check PB1 released at boot, held at boot, release and fresh press. PASS: held-at-boot never starts localization/mission; only release then press advances the software gate.
 2. With the robot stationary at a surveyed START pose, watch `plannerPoseVerified`, `startLocalizationStatus`, `startLocalizationMeanErrorCm`, `startLocalizationCandidates`, `plannerStatus` and `one_run_link_storage.mission.state` over SWD. Run centered, left/right displaced, yaw displaced, one missing VL53 and ambiguous-return cases. PASS: only the independently surveyed, fresh, unambiguous case can verify pose; each invalid case keeps STBY LOW and route stopped. Zero or unreviewed configuration flags still block the current image by design.

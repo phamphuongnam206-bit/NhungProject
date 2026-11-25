@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <math.h>
+#include "map_one_run_calibration.h"
+#include "v1_mpu_profile.h"
 
 #if !defined(SWD_QUICK_MOTOR_LOCK) || SWD_QUICK_MOTOR_LOCK != 1
 #error "SWD quick diagnostic requires motor lock"
@@ -12,8 +14,8 @@ constexpr uint32_t STBY_PIN = PB0;
 constexpr uint32_t MOTOR_PINS[] = {PB14, PB15, PB9, PB12, PB13, PB8};
 constexpr uint8_t MPU_ADDR = 0x68;
 constexpr uint32_t SAMPLE_MS = 10, QUIET_MS = 800, GYRO_TIMEOUT_MS = 100;
-constexpr float GYRO_LSB_DPS = 65.5f; // 0x1B=0x08, +/-500 dps
-constexpr int32_t LEFT_DIR = -1, RIGHT_DIR = 1;
+constexpr int32_t LEFT_DIR = MapOneRunCalibration::leftEncoderSign;
+constexpr int32_t RIGHT_DIR = MapOneRunCalibration::rightEncoderSign;
 constexpr uint8_t READY = 1, STRAIGHT = 2, TURN_READY = 3;
 constexpr uint8_t TURNING = 4, DONE = 5, DIAG_ERROR = 6;
 constexpr uint8_t ERR_MPU_INIT = 1, ERR_MPU_READ = 2, ERR_SAMPLE_GAP = 3;
@@ -114,21 +116,20 @@ static bool initMpu() {
   if (!readMpu(0x75, who)) return false;
   swd_quick.mpu_who_am_i = who;
   if (who != 0x68 || !writeMpu(0x6B, 0x01) ||
-      !writeMpu(0x1A, 0x03) || !writeMpu(0x19, 0x09) ||
-      !writeMpu(0x1B, 0x08)) return false;
-  if (!readMpu(0x1A, filter) || filter != 0x03 ||
-      !readMpu(0x19, divider) || divider != 0x09 ||
-      !readMpu(0x1B, range) || range != 0x08) return false;
+      !writeMpu(0x1A, V1Mpu::filter) || !writeMpu(0x19, V1Mpu::sampleDivider) ||
+      !writeMpu(0x1B, V1Mpu::gyroConfig)) return false;
+  if (!readMpu(0x1A, filter) || filter != V1Mpu::filter ||
+      !readMpu(0x19, divider) || divider != V1Mpu::sampleDivider ||
+      !readMpu(0x1B, range) || range != V1Mpu::gyroConfig) return false;
   swd_quick.mpu_gyro_config = range;
   delay(60);
-  int32_t sum = 0;
-  for (unsigned i = 0; i < 50; ++i) {
+  V1Mpu::StationaryBias bias;
+  for (unsigned i = 0; i < V1Mpu::biasSamples; ++i) {
     int16_t raw = 0;
-    if (!readGyroZ(raw)) return false;
-    sum += raw;
-    delay(6);
+    if (!readGyroZ(raw) || !bias.add(raw)) return false;
+    delay(V1Mpu::samplePeriodMs);
   }
-  biasRaw = float(sum) / 50.0f;
+  biasRaw = bias.mean();
   swd_quick.gyro_bias_raw = biasRaw;
   lastGyroGoodMs = millis();
   return true;
@@ -210,7 +211,7 @@ void loop() {
     return;
   }
   lastGyroGoodMs = now;
-  const float rate = (float(rawGyro) - biasRaw) / GYRO_LSB_DPS;
+  const float rate = (float(rawGyro) - biasRaw) / V1Mpu::gyroLsbPerDps;
   const float filteredRate = fabsf(rate) < 0.30f ? 0.0f : rate;
   yawRawDeg += filteredRate * (float(elapsed) * 0.001f);
   const uint16_t rawLeft = uint16_t(TIM3->CNT);
@@ -222,7 +223,7 @@ void loop() {
   swd_quick.left_delta = left; swd_quick.right_delta = right;
   swd_quick.gyro_rate_dps = filteredRate;
   swd_quick.yaw_raw_deg = yawRawDeg;
-  swd_quick.yaw_hybrid_deg = -yawRawDeg; // hybrid_2laps YAW_SIGN
+  swd_quick.yaw_hybrid_deg = MapOneRunCalibration::hybridYawSign * yawRawDeg;
   swd_quick.last_sample_ms = now;
   swd_quick.gyro_age_ms = now - lastGyroGoodMs;
   ++swd_quick.sample_count;
@@ -256,7 +257,8 @@ void loop() {
       if (fabsf(filteredRate) >= 3.0f || left || right) lastTurnMs = now;
       if (uint32_t(now - lastTurnMs) >= QUIET_MS) {
         swd_quick.turn_yaw_raw_deg = yawRawDeg - turnStartRawDeg;
-        swd_quick.turn_yaw_hybrid_deg = -swd_quick.turn_yaw_raw_deg;
+        swd_quick.turn_yaw_hybrid_deg = MapOneRunCalibration::hybridYawSign *
+                                       swd_quick.turn_yaw_raw_deg;
         swd_quick.turn_90_error_deg = fabsf(fabsf(swd_quick.turn_yaw_raw_deg) - 90.0f);
         swd_quick.turn_done = 1;
         swd_quick.phase = DONE;

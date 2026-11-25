@@ -4,7 +4,7 @@ Build the separate 64 KiB image with `pio run -e swd_quick_encoder_mpu`. Its onl
 
 The firmware uses the assembled vehicle's TIM3 (left PA6/PA7) and TIM2 (right PA0/PA1) encoder wiring and signed directions from `hybrid_2laps.cpp`. MPU6050 uses PB7/PB6, address `0x68`, filter `0x03`, divider `0x09`, gyro range `0x08` (500 dps, 65.5 LSB/dps), and a fresh 50-sample stillness bias. The older 1000 dps bias cannot be copied. Keep the robot still during boot bias collection.
 
-The V1 planner qualification/staging builds already use compact debug and do not call Bluetooth service. The legacy `hybrid_2laps` target still contains a read-only Bluetooth status command; this diagnostic does not build or use it. Autonomous navigation does not depend on HC-05.
+The V1 planner qualification, staging and `hybrid_2laps` builds use compact debug. Use SWD for the calibration session.
 
 ## One short manual session
 

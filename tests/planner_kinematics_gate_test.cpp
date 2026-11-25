@@ -9,6 +9,9 @@ int main() {
       45.0f, 46.0f, -1.0f, 1.0f, 90.0f, 130.0f, 100.0f,
       -1.0f, 350.0f}; // Synthetic fixture, never a robot calibration.
   assert(!PlannerKinematicsReady(candidate, expected));
+  assert(candidate.left.countsPerCm.state == State::USER_MEASURED);
+  assert(candidate.right.countsPerCm.state == State::USER_MEASURED);
+  assert(candidate.effectiveTrackMm.state == State::NEEDS_MEASUREMENT);
   Calibration c{};
   const auto value = [](float n) { return Value{n, State::VERIFIED}; };
   c.left.countsPerCm = value(45.0f);
@@ -22,6 +25,8 @@ int main() {
   c.decelerationMmPerSecond2 = value(350.0f);
   c.brakingDistanceMm = value(80.0f);
   assert(PlannerKinematicsReady(c, expected));
+  c.left.countsPerCm.state = State::USER_MEASURED;
+  assert(!PlannerKinematicsReady(c, expected));
   c.left.countsPerCm.state = State::NEEDS_MEASUREMENT;
   assert(!PlannerKinematicsReady(c, expected));
   c.left.countsPerCm = value(45.0f);

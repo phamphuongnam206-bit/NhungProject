@@ -3,11 +3,9 @@
 #include <stdint.h>
 #include <math.h>
 
-// Moc 0B: all values are placeholders. No field below is a driving constant.
-// A measured value needs a recorded method, raw log and review before arming.
 namespace MapOneRunCalibration {
 
-enum class State : uint8_t { NEEDS_MEASUREMENT, VERIFIED };
+enum class State : uint8_t { NEEDS_MEASUREMENT, VERIFIED, USER_MEASURED };
 
 struct Value {
     float number;
@@ -50,13 +48,25 @@ struct Calibration {
     SensorMount vl53[4]; // J8, J9, J10, J11 in PCB order.
 };
 
-// The user measured the assembled body at 13 cm along travel and 10 cm
-// across the wheels. Other zeros are placeholders, never operating values.
+// USER_MEASURED is usable for locked diagnostics and still requires review
+// before satisfying PlannerKinematicsReady. See V1_CALIBRATION_MATRIX.md.
+constexpr float mechanicalTrackMm = 90.0f;
 constexpr Calibration candidate{
-    {}, {}, {},
+    {{56.66f, State::USER_MEASURED}, {-1.0f, State::USER_MEASURED}, {}, {}, {}},
+    {{51.24f, State::USER_MEASURED}, { 1.0f, State::USER_MEASURED}, {}, {}, {}},
+    {},
     {130.0f, State::VERIFIED}, {100.0f, State::VERIFIED},
-    {}, {}, {}, {}, {}, {}, {}, {}, {}
+    {1.0f, State::USER_MEASURED}, {}, {}, {}, {}, {}, {}, {}, {}
 };
+
+constexpr float leftCountsPerCm = candidate.left.countsPerCm.number;
+constexpr float rightCountsPerCm = candidate.right.countsPerCm.number;
+constexpr int32_t leftEncoderSign = int32_t(candidate.left.forwardEncoderSign.number);
+constexpr int32_t rightEncoderSign = int32_t(candidate.right.forwardEncoderSign.number);
+constexpr float hybridYawSign = candidate.gyroSign.number; // +Y forward, clockwise positive
+constexpr float steeringTrackCm = (candidate.effectiveTrackMm.state == State::VERIFIED &&
+    candidate.effectiveTrackMm.number > 0.0f ? candidate.effectiveTrackMm.number :
+    mechanicalTrackMm) / 10.0f;
 
 struct PlannerKinematicsExpected {
     float leftCountsPerCm, rightCountsPerCm;

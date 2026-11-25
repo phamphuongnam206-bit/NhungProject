@@ -12,7 +12,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cxx", nargs="+", required=True)
     args = parser.parse_args()
-    source = (Path(__file__).resolve().parents[1] / "src/hybrid_2laps.cpp").read_text()
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "src/hybrid_2laps.cpp").read_text()
     functions = "\n".join(function(source, signature) for signature in (
         "bool writeMpuReg(uint8_t r, uint8_t v)",
         "bool readMpuReg(uint8_t r, uint8_t &value)",
@@ -22,6 +23,7 @@ def main():
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "v1_mpu_profile.h"
 enum { PB6, PB7, MPU_ADDR = 0x68 };
 struct MockWire {
   uint8_t regs[256] = {};
@@ -42,9 +44,10 @@ struct MockWire {
 float gyroBias = 0, currentYawDeg = 0;
 uint32_t lastGyroGoodMs = 0, lastGyroMs = 0;
 unsigned rawReads = 0;
+int16_t secondSample = 100;
 void delay(unsigned) {}
 uint32_t millis() { return 123U; }
-bool readGyroRawZ(int16_t &raw) { ++rawReads; raw = 100; return true; }
+bool readGyroRawZ(int16_t &raw) { raw = ++rawReads == 2 ? secondSample : 100; return true; }
 ''' + functions + r'''
 int main() {
   assert(initGyro());
@@ -55,7 +58,9 @@ int main() {
   assert(!initGyro() && rawReads == 0U);
   Wire.bad_range_readback = false; Wire.fail_read = true;
   assert(!initGyro() && rawReads == 0U);
-  puts("PASS MPU config readback blocks wrong scale and I2C read failure");
+  Wire.fail_read = false; secondSample = 240;
+  assert(!initGyro() && rawReads == 2U && gyroBias == 100.0f);
+  puts("PASS MPU config readback and stationary bias rejection");
 }
 '''
     with tempfile.TemporaryDirectory(prefix="nhung_mpu_config_") as folder:
@@ -64,7 +69,7 @@ int main() {
         exe = path / "mpu_config.exe"
         cpp.write_text(harness, encoding="utf-8")
         subprocess.run(args.cxx + ["-std=c++11", "-Wall", "-Wextra", "-Werror",
-                                   str(cpp), "-o", str(exe)], check=True)
+                                   "-I", str(root / "include"), str(cpp), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
 
 

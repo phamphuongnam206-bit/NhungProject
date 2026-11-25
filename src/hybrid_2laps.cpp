@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 #include <math.h>
+#include "map_one_run_calibration.h"
+#include "v1_mpu_profile.h"
 
 // The link-check environment must never energize the bridge, including braking.
 #ifndef HYBRID_MOTOR_LOCK
@@ -40,7 +42,6 @@
 #include "planner_start_entry_motion.h"
 #include "planner_goal_exit.h"
 #include "planner_goal_exit_motion.h"
-#include "map_one_run_calibration.h"
 #endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -67,23 +68,18 @@ VL53L0X sensors[SENSOR_COUNT];
 
 
 
-// Sua theo quang duong do thuc: xung encoder cho moi cm lan banh.
-#ifndef MAP_COUNTS_CM_L
-#define MAP_COUNTS_CM_L 45.0f
-#endif
-#ifndef MAP_COUNTS_CM_R
-#define MAP_COUNTS_CM_R 45.0f
-#endif
-#ifndef MAP_TRACK_CM
-#define MAP_TRACK_CM 9.0f
-#endif
+constexpr float MAP_COUNTS_CM_L = MapOneRunCalibration::leftCountsPerCm;
+constexpr float MAP_COUNTS_CM_R = MapOneRunCalibration::rightCountsPerCm;
+// Provisional for steering. The planner gate separately requires effective track.
+constexpr float MAP_TRACK_CM = MapOneRunCalibration::steeringTrackCm;
 static_assert(MAP_COUNTS_CM_L > 0 && MAP_COUNTS_CM_R > 0 && MAP_TRACK_CM > 0,
               "Encoder scales and wheel spacing must be positive");
-constexpr int32_t LEFT_ENC_DIR = -1, RIGHT_ENC_DIR = 1;
+constexpr int32_t LEFT_ENC_DIR = MapOneRunCalibration::leftEncoderSign;
+constexpr int32_t RIGHT_ENC_DIR = MapOneRunCalibration::rightEncoderSign;
 constexpr float RAD = 0.01745329252f;
 constexpr float FAST_CM_S = 17.5f, SLOW_CM_S = 11.5f;
 constexpr float TURN_CM_S = 13.0f, MIN_WHEEL_CM_S = 5.5f;
-constexpr float YAW_SIGN = -1.0f;
+constexpr float YAW_SIGN = MapOneRunCalibration::hybridYawSign;
 constexpr float BRAKE_DECEL_CM_S2 = 35.0f;
 constexpr float REACTION_TIME_S = 0.18f;
 constexpr float OBSTACLE_MARGIN_CM = 1.5f;
@@ -179,7 +175,7 @@ constexpr Box MAP_BOXES[] = {
 #endif
 
 // J8, J9, J10, J11. Vi tri tinh tu tam xe, right > 0 ben phai.
-// J9/J10 dat lui 1.5 cm so voi mep dau xe, nen goc do bat dau o forward=4.5.
+// Nominal origins used by the planner. Survey the mounted lenses before use.
 struct Beam { float right, forward, angleDeg; };
 constexpr Beam BEAMS[SENSOR_COUNT] = {
   {-2.5f, 4.5f, -35.43f}, {-2.5f, 4.5f, 0}, {2.5f, 4.5f, 0}, {2.5f, 4.5f, 35.43f},
@@ -571,21 +567,21 @@ bool readGyroRawZ(int16_t &rawZ) {
 
 bool initGyro() {
   Wire.setSDA(PB7); Wire.setSCL(PB6); Wire.begin(); Wire.setClock(100000);
-  if (!writeMpuReg(0x6B, 0x01) || !writeMpuReg(0x1A, 0x03) ||
-      !writeMpuReg(0x19, 0x09) || !writeMpuReg(0x1B, 0x08)) return false;
+  if (!writeMpuReg(0x6B, 0x01) || !writeMpuReg(0x1A, V1Mpu::filter) ||
+      !writeMpuReg(0x19, V1Mpu::sampleDivider) ||
+      !writeMpuReg(0x1B, V1Mpu::gyroConfig)) return false;
   uint8_t filter = 0, sampleRate = 0, gyroRange = 0;
-  if (!readMpuReg(0x1A, filter) || filter != 0x03 ||
-      !readMpuReg(0x19, sampleRate) || sampleRate != 0x09 ||
-      !readMpuReg(0x1B, gyroRange) || gyroRange != 0x08) return false;
+  if (!readMpuReg(0x1A, filter) || filter != V1Mpu::filter ||
+      !readMpuReg(0x19, sampleRate) || sampleRate != V1Mpu::sampleDivider ||
+      !readMpuReg(0x1B, gyroRange) || gyroRange != V1Mpu::gyroConfig) return false;
   delay(60);
-  int32_t sum = 0;
-  for (int i = 0; i < 50; ++i) {
+  V1Mpu::StationaryBias bias;
+  for (unsigned i = 0; i < V1Mpu::biasSamples; ++i) {
     int16_t gz;
-    if (!readGyroRawZ(gz)) return false;
-    sum += gz;
-    delay(6);
+    if (!readGyroRawZ(gz) || !bias.add(gz)) return false;
+    delay(V1Mpu::samplePeriodMs);
   }
-  gyroBias = sum / 50.0f;
+  gyroBias = bias.mean();
   currentYawDeg = 0.0f;
   lastGyroGoodMs = lastGyroMs = millis();
   return true;
@@ -598,7 +594,7 @@ void updateGyro(uint32_t now) {
   int16_t rawZ;
   if (readGyroRawZ(rawZ)) {
     lastGyroGoodMs = now;
-    yawRateDps = (rawZ - gyroBias) / 65.5f;
+    yawRateDps = (rawZ - gyroBias) / V1Mpu::gyroLsbPerDps;
     if (fabsf(yawRateDps) < 0.30f) yawRateDps = 0.0f;
     currentYawDeg += yawRateDps * (dtMs * 0.001f);
   }
@@ -899,7 +895,7 @@ void fillPlannerConfig(OneRunConfig &config) {
   config.planner.footprint = {HALF_LENGTH / 5.0f, HALF_WIDTH / 5.0f};
   config.navigation.follower = {5.0f, 20.0f, 0.35f, 5.0f, 20.0f,
                                 3.0f, 8.0f, 20.0f, 2.0f};
-  config.navigation.wheels = {10.0f, 30.0f, 40.0f, 80.0f};
+  config.navigation.wheels = {MAP_TRACK_CM, 30.0f, 40.0f, 80.0f};
   config.navigation.safety = {100U, SENSOR_STALE_MS, FRONT_HARD_STOP_MM};
   config.sensors.min_range_mm = 30U;
   config.sensors.max_range_mm = RANGE_OPEN_MM;
