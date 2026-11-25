@@ -51,6 +51,12 @@ with tempfile.TemporaryDirectory(prefix='nhung_runtime_') as folder:
                     str(root/'src/start_localization.cpp'), *objects,
                     '-o', str(start)], check=True)
     subprocess.run([str(start)], check=True)
+    pose_window = Path(folder) / 'pose_window.exe'
+    subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-I' + str(root/'include'),
+                    str(root/'tests/planner_pose_window_test.cpp'),
+                    '-o', str(pose_window)], check=True)
+    subprocess.run([str(pose_window)], check=True)
     for name in ('planner_motion_health', 'planner_goal_gate'):
         test = Path(folder) / (name + '.exe')
         subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
