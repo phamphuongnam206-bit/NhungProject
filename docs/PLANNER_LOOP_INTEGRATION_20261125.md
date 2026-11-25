@@ -19,10 +19,15 @@ target, applies the locked stop path, and enters `FINISHED`. The old fixed-route
 finish test remains disabled for planner mode until the official finish gate
 and competition rule are confirmed.
 
+The hybrid loop now starts the STM32F1 independent watchdog with a nominal
+4-second timeout and reloads it at the start of every loop. A control-loop gap
+over 150 ms latches `CONTROL_LOOP_TIMEOUT` and stops the vehicle. These paths
+are source/build verified; reset timing still needs a controlled PCB test.
+
 ## Verification
 
 - `hybrid_planner_check` ARM build passed.
-- ELF span is `63,940 / 64,512` bytes.
+- ELF span is `64,128 / 64,512` bytes.
 - Static RAM is `14,456` bytes and RAM including linker reservation is
   `15,992 / 20,480` bytes.
 - Motor-lock host test passed for `HYBRID_MOTOR_LOCK=0` and `1`.

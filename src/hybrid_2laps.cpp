@@ -83,6 +83,11 @@ constexpr uint8_t SENSOR_REINIT_LIMIT = 2;
 constexpr uint8_t SENSOR_RECOVERY_FRAMES = 2;
 constexpr uint32_t SENSOR_SLOW_AGE_MS = 60;
 constexpr uint32_t CLEAR_BEFORE_RESTART_MS = 100;
+constexpr uint32_t WATCHDOG_TIMEOUT_US = 4000000UL;
+constexpr uint32_t CONTROL_LOOP_TIMEOUT_MS = 150;
+constexpr uint32_t WATCHDOG_RELOAD = static_cast<uint32_t>(
+    (40000ULL * WATCHDOG_TIMEOUT_US / 1000000ULL / 64ULL) - 1ULL);
+static_assert(WATCHDOG_RELOAD <= 0x0FFFU, "IWDG reload must fit STM32F1");
 constexpr float FRONT_SLOW_RESERVE_CM = 8.0f;
 constexpr float AVOID_EARLY_CM = 32.0f;
 constexpr float MIN_ROLLING_CLEARANCE_CM = 11.0f;
@@ -128,7 +133,7 @@ constexpr Beam BEAMS[SENSOR_COUNT] = {
 };
 
 enum class RunMode { WAIT_SENSORS, AUTO_RUN, LOCKED, FINISHED };
-enum class Fault : uint8_t { NONE, MPU, LEFT_WHEEL, RIGHT_WHEEL, SENSOR, OBSTACLE };
+enum class Fault : uint8_t { NONE, MPU, LEFT_WHEEL, RIGHT_WHEEL, SENSOR, OBSTACLE, CONTROL };
 RunMode mode = RunMode::WAIT_SENSORS;
 Fault fault = Fault::NONE;
 const char *status = "START";
@@ -281,6 +286,20 @@ struct StopReport {
   uint16_t ranges[SENSOR_COUNT] = {};
 };
 StopReport lastStop;
+
+void initWatchdog() {
+  // STM32F1 IWDG: /64, reload 2499 gives about 4 s at the nominal 40 kHz LSI.
+  IWDG->KR = 0xCCCCU;
+  IWDG->KR = 0x5555U;
+  IWDG->PR = 4U;
+  IWDG->RLR = WATCHDOG_RELOAD;
+  while (IWDG->SR != 0U) {}
+  IWDG->KR = 0xAAAAU;
+}
+
+void reloadWatchdog() {
+  IWDG->KR = 0xAAAAU;
+}
 
 float measuredForwardSpeed() {
   return 0.5f * (wheelL.cps / MAP_COUNTS_CM_L + wheelR.cps / MAP_COUNTS_CM_R);
@@ -1038,6 +1057,7 @@ void setup() {
   pinMode(LEFT_PWM, OUTPUT); pinMode(RIGHT_PWM, OUTPUT);
   analogWriteResolution(8);
   stopMotors();
+  initWatchdog();
   Serial.setRx(PA10); Serial.setTx(PA9);
   Serial.begin(BT_BAUD, SERIAL_8N1);
 #if HYBRID_MOTOR_LOCK
@@ -1122,6 +1142,7 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
 }
 
 void loop() {
+  reloadWatchdog();
   serviceBluetooth();
   if (mode == RunMode::LOCKED || mode == RunMode::FINISHED) {
     const uint32_t now = millis();
@@ -1142,8 +1163,14 @@ void loop() {
     halt("FRONT_TOO_CLOSE", Fault::OBSTACLE);
     return;
   }
-  if (now - lastControlMs < 10) return;
-  const float dt = (now - lastControlMs) * 0.001f;
+  const uint32_t controlGap = now - lastControlMs;
+  if (controlGap > CONTROL_LOOP_TIMEOUT_MS) {
+    lastControlMs = now;
+    halt("CONTROL_LOOP_TIMEOUT", Fault::CONTROL);
+    return;
+  }
+  if (controlGap < 10) return;
+  const float dt = controlGap * 0.001f;
   lastControlMs = now;
   updateGyro(now);
   if (now - lastGyroGoodMs > 100) { halt("MPU_LOST", Fault::MPU); return; }
