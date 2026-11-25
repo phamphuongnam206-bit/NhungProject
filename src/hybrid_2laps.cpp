@@ -35,6 +35,7 @@
 #include "planner_goal_gate.h"
 #include "planner_start_entry.h"
 #include "planner_goal_exit.h"
+#include "map_one_run_calibration.h"
 #endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -894,7 +895,19 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
 
 bool beginPlannerRuntime() {
 #if HYBRID_PLANNER_128K
-  if (!plannerMapVerified || !plannerPoseVerified || !plannerGoalVerified) return false;
+  if (!plannerMapVerified || !plannerPoseVerified) return false;
+  const MapOneRunCalibration::PlannerKinematicsExpected expected{
+      MAP_COUNTS_CM_L, MAP_COUNTS_CM_R,
+      float(LEFT_ENC_DIR), float(RIGHT_ENC_DIR),
+      MAP_TRACK_CM * 10.0f, HALF_LENGTH * 20.0f,
+      HALF_WIDTH * 20.0f, YAW_SIGN, BRAKE_DECEL_CM_S2 * 10.0f};
+  const volatile MapOneRunCalibration::Calibration &calibration =
+      MapOneRunCalibration::candidate;
+  if (!MapOneRunCalibration::PlannerKinematicsReady(calibration, expected)) {
+    status = "KINEMATICS_UNVERIFIED";
+    return false;
+  }
+  if (!plannerGoalVerified) return false;
   const uint32_t now = millis();
   PlannerStartEntryConfig handoff{};
   handoff.verified = startRegion.verified && startMountsVerified;

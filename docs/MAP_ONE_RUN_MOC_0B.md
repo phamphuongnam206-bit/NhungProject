@@ -48,18 +48,18 @@ Trước khi `setup()` cấu hình PB0, mức STBY phụ thuộc phần cứng P
 
 ## Sổ cấu hình tập trung
 
-`include/map_one_run_calibration.h` khai báo schema. Mọi trường đều mang trạng thái `NEEDS_MEASUREMENT`; số 0 chỉ là giá trị giữ chỗ, **không phải chuẩn chạy**. Không dùng 45/100 counts/cm hay track 9/12 cm từ code cũ làm số đo.
+`include/map_one_run_calibration.h` khai báo schema. Kích thước thân 130 × 100 mm đã được người dùng đo và xác nhận; các trường còn lại vẫn `NEEDS_MEASUREMENT`. Số 0 chỉ là giá trị giữ chỗ, **không phải chuẩn chạy**. Không dùng 45/100 counts/cm hay track 9/12 cm từ code cũ làm số đo. Firmware 128 KiB nay đối chiếu dữ liệu hiệu chuẩn với hằng số đã biên dịch và từ chối planner nếu chưa khớp; việc đối chiếu này chưa chứng minh motor an toàn để mở khóa.
 
 | Nhóm | Trường | Trạng thái / cách đo |
 | --- | --- | --- |
 | Encoder | counts/cm trái, phải; dấu chiều tiến từng bánh | NEEDS_MEASUREMENT; quay theo mốc quãng đường có thước, ghi raw ticks tiến/lùi. |
-| Hình học | đường kính từng bánh; track hiệu dụng; dài/rộng thân | NEEDS_MEASUREMENT; track hiệu dụng từ quay có góc chuẩn, thân bằng thước. |
+| Hình học | đường kính từng bánh; track hiệu dụng; dài/rộng thân | Thân 130 × 100 mm: VERIFIED theo phép đo người dùng. Đường kính bánh và track hiệu dụng: NEEDS_MEASUREMENT; track từ quay có góc chuẩn. |
 | MPU | dấu gyro Z; bias deg/s; drift deg/phút | NEEDS_MEASUREMENT; đứng yên đủ 500 mẫu, đo trôi tĩnh và hai chiều quay có mốc góc. |
 | Motor | PWM khởi động tiến/lùi từng bánh; 5 điểm PWM–tốc độ mỗi bánh | NEEDS_MEASUREMENT; đo bằng bài MOTOR/SWEEP khi kê bánh. |
 | Động học | gia tốc, giảm tốc, quãng phanh | NEEDS_MEASUREMENT; đo khi xe chạy trong vùng thử có chặn ngoài. |
 | VL53 | x/y/yaw của J8, J9, J10, J11 so với tâm trục bánh | NEEDS_MEASUREMENT; đo bằng thước và mốc hướng, rồi đối chiếu tường/vật phẳng. |
 
-Mỗi kết quả phải lưu số thô, đơn vị, ngày, cấu hình pin/nguồn, chiều quan sát, số lượt và sai số; chỉ chuyển từng trường sang `VERIFIED` sau khi phép thử lặp lại đạt tiêu chí. Chưa nối schema với hằng số điều khiển để tránh vô tình dùng số giữ chỗ.
+Mỗi kết quả phải lưu số thô, đơn vị, ngày, cấu hình pin/nguồn, chiều quan sát, số lượt và sai số; chỉ chuyển từng trường sang `VERIFIED` sau khi phép thử lặp lại đạt tiêu chí. Gate `PlannerKinematicsReady` trên bản 128 KiB yêu cầu trạng thái đã xác nhận và so với hằng số điều khiển; giá trị giữ chỗ không thể cho phép planner chạy.
 
 ## Kịch bản thử dùng `pid_calibration`
 

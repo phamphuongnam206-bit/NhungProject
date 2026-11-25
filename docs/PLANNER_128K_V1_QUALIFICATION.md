@@ -42,6 +42,13 @@ fixture's distances and pose are synthetic source/build checks only.
 
 - `HYBRID_MOTOR_LOCK=1` and `HYBRID_PLANNER_INPUTS_VERIFIED=0`. Compile-time
   checks reject unlocking the planner qualification image. STBY stays LOW.
+- The 128 KiB planner also checks `PlannerKinematicsReady` before begin:
+  reviewed encoder counts/cm and signs, effective track, body dimensions,
+  gyro sign and deceleration must match the compiled values, with a positive
+  measured brake distance. The old 45 counts/cm, 9 cm track and 35 cm/s²
+  deceleration remain unverified, so this gate currently rejects runtime.
+  The user-confirmed body 13 × 10 cm is recorded separately. Calibration data
+  stays in read-only Flash and the ELF check enforces that placement.
 - The legacy motor-capable `hybrid_2laps` build has a post-link gate checking
   that the framework's strong `SysTick_Handler` calls the strong
   `osSystickHandler` lease hook and that lease arming is linked. The locked

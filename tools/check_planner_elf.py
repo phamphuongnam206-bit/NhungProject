@@ -54,11 +54,13 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
         missing.update({"NavBoot_Estimate", "StartLocalization_Estimate"} - names)
         demangled = subprocess.check_output(
             [tool("nm"), "-S", "-C", "--defined-only", str(elf)], text=True)
-        calibration = next((line.split() for line in demangled.splitlines()
-                            if line.split() and line.split()[-1] == "goalExitMeasurements"), None)
-        if (calibration is None or calibration[2].lower() != "r" or
-                not 0x08000000 <= int(calibration[0], 16) < flash_end):
-            raise RuntimeError("GOAL_EXIT calibration must remain in read-only Flash")
+        for calibration_name in ("goalExitMeasurements",
+                                 "MapOneRunCalibration::candidate"):
+            calibration = next((line.split() for line in demangled.splitlines()
+                                if line.split() and line.split()[-1] == calibration_name), None)
+            if (calibration is None or calibration[2].lower() != "r" or
+                    not 0x08000000 <= int(calibration[0], 16) < flash_end):
+                raise RuntimeError(calibration_name + " must remain in read-only Flash")
     if missing:
         raise RuntimeError("Planner was not fully linked; missing: " + ", ".join(sorted(missing)))
     if require_start_scan:
