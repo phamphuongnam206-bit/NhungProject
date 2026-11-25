@@ -147,7 +147,7 @@ constexpr Box MAP_BOXES[] = {
   {55,45,5,5}, // T4
   {5,55,5,5}, // T5
   {5,75,5,5}, // T6
-  {35,85,5,5}, // T7
+  {35,90,5,5}, // T7
   {45,115,5,5}, // T8
   {65,75,5,5}, // T9
   {75,65,5,5}, // T10
@@ -794,6 +794,10 @@ void attemptStartLocalization(uint32_t now) {
   scan.arena_height_cm = 120.0f;
   scan.blocked = fixed;
   scan.blocked_count = sizeof(fixed) / sizeof(fixed[0]);
+  // The first rectangle is tape marking a forbidden zone, not a ToF target.
+  // The arena outline is tape as well; only T1..T17 reflect in this model.
+  scan.first_reflector_index = 1U;
+  scan.arena_edges_reflect = 0U;
   scan.robot_length_cm = 2.0f * HALF_LENGTH;
   scan.robot_width_cm = 2.0f * HALF_WIDTH;
   scan.body_margin_cm = 0.5f;

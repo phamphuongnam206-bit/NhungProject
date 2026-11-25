@@ -14,6 +14,7 @@ int main() {
   StartLocalizationInput input{};
   auto &c = input.scan;
   c.arena_width_cm = c.arena_height_cm = 100.0f;
+  c.arena_edges_reflect = 1U; // synthetic fixture has reflective walls
   c.blocked = block; c.blocked_count = 1;
   c.robot_length_cm = 15.0f; c.robot_width_cm = 10.0f;
   c.body_margin_cm = 0.5f;
