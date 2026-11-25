@@ -29,6 +29,15 @@ int main() {
   m.speed_cm_s = 0;
   assert(!PlannerGoalExitMotion_Begin(&state, m, true, 100, 12.5f));
   m = fixture();
+  m.corridor.heading_tolerance_rad = 3.0f;
+  assert(!PlannerGoalExitMotion_Begin(&state, m, true, 100, 12.5f));
+  m = fixture();
+  m.corridor.gate_xmax_cm = m.corridor.gate_xmin_cm;
+  assert(!PlannerGoalExitMotion_Begin(&state, m, true, 100, 12.5f));
+  m = fixture();
+  m.corridor.half_width_cm = 0;
+  assert(!PlannerGoalExitMotion_Begin(&state, m, true, 100, 12.5f));
+  m = fixture();
   const PlannerGoalExitRect blocks[] = {
       {60, 0, 60, 60}, {140, 10, 10, 10}, {170, 20, 10, 10}};
   assert(PlannerGoalExitMotion_PathClear(m, 162.5f, 12.5f, 3.14159265f,

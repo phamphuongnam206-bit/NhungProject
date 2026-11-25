@@ -24,12 +24,23 @@ struct PlannerGoalExitMotionConfig {
 };
 
 inline bool PlannerGoalExitMotion_ConfigReady(const PlannerGoalExitMotionConfig &m) {
-  return m.corridor.verified && isfinite(m.speed_cm_s) && m.speed_cm_s > 0 &&
+  const PlannerGoalExitConfig &c = m.corridor;
+  return c.verified && isfinite(c.gate_xmin_cm) && isfinite(c.gate_xmax_cm) &&
+         c.gate_xmin_cm < c.gate_xmax_cm &&
+         isfinite(c.line_y_cm) && isfinite(c.exit_ymin_cm) &&
+         c.exit_ymin_cm < c.line_y_cm &&
+         isfinite(c.half_length_cm) && c.half_length_cm > 0 &&
+         isfinite(c.half_width_cm) && c.half_width_cm > 0 &&
+         isfinite(c.obstacle_margin_cm) && c.obstacle_margin_cm >= 0 &&
+         isfinite(c.heading_tolerance_rad) &&
+         c.heading_tolerance_rad > 0 &&
+         c.heading_tolerance_rad < 1.57079632679f &&
+         isfinite(m.speed_cm_s) && m.speed_cm_s > 0 &&
          m.timeout_ms > 0 && m.stall_ms > 0 && m.stall_ms < m.timeout_ms &&
          isfinite(m.progress_epsilon_cm) && m.progress_epsilon_cm > 0 &&
-         isfinite(m.corridor.brake_overrun_cm) && m.corridor.brake_overrun_cm > 0 &&
-         isfinite(m.corridor.terminal_center_y_cm) &&
-         m.corridor.terminal_center_y_cm < m.corridor.line_y_cm;
+         isfinite(c.brake_overrun_cm) && c.brake_overrun_cm > 0 &&
+         isfinite(c.terminal_center_y_cm) &&
+         c.terminal_center_y_cm < c.line_y_cm;
 }
 
 // Conservative swept corridor from the current footprint to the lowest

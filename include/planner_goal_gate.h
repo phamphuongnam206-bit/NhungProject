@@ -16,7 +16,9 @@ inline bool PlannerGoalGate_Complete(const PlannerGoalGateConfig &c,
                                      float x_cm, float y_cm, float heading_rad) {
   if (!c.verified || !mission_complete || !wheels_stopped ||
       !(c.xmin_cm < c.xmax_cm) || !(c.ymin_cm < c.ymax_cm) ||
-      !(c.heading_tolerance_rad > 0) || !(c.half_length_cm > 0) ||
+      !(c.heading_tolerance_rad > 0 &&
+        c.heading_tolerance_rad < 1.57079632679f) ||
+      !(c.half_length_cm > 0) ||
       !(c.half_width_cm > 0) || !isfinite(x_cm) || !isfinite(y_cm) ||
       !isfinite(heading_rad) || !isfinite(c.heading_rad)) return false;
   const float s = sinf(heading_rad), co = cosf(heading_rad);

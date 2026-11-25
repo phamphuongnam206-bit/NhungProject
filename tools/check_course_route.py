@@ -16,6 +16,14 @@ assert len(rects) == 18
 assert course["grid_cm"] == 5
 assert all(all(n % 5 == 0 for n in rect) for rect in rects)
 rows = ",\n".join("  {%d,%d,%d,%d}" % tuple(rect) for rect in rects)
+stress = json.loads((ROOT / "tests/fixtures/synthetic_random_obstacle_stress.json")
+                    .read_text(encoding="utf-8"))
+assert stress["status"] == "SYNTHETIC_STRESS_ONLY"
+stress_rects = stress["rectangles_cm"]
+assert len(stress_rects) == 4
+assert all(len(r) == 4 and all(isinstance(n, int) and n >= 0 and n % 5 == 0
+                             for n in r) for r in stress_rects)
+stress_rows = ",\n".join("  {%d,%d,%d,%d}" % tuple(rect) for rect in stress_rects)
 source = r'''
 #include "planner_replan.h"
 #include <assert.h>
@@ -24,7 +32,11 @@ source = r'''
 static const unsigned short rects[][4] = {
 REPLACE_RECTS
 };
+static const unsigned short stress_rects[][4] = {
+REPLACE_STRESS
+};
 static MapGrid grid;
+static MapGrid nominal;
 static PlannerWorkspace workspace;
 static MapCellPosition route[MAP_GRID_CELL_COUNT];
 
@@ -75,9 +87,38 @@ int main(void) {
   }
   printf("PASS interior C11 route with footprint: %u waypoints, cost %u\n",
       count, cost);
+  assert(MapGrid_Copy(&nominal, &grid) == MAP_GRID_OK);
+  for (unsigned scenario = 0; scenario < 4; ++scenario) {
+    const unsigned short *r = stress_rects[scenario];
+    assert(MapGrid_Copy(&grid, &nominal) == MAP_GRID_OK);
+    assert(MapGrid_SetRectangle(&grid, r[1]/5, r[0]/5,
+        r[3]/5, r[2]/5, MAP_CELL_OBSTACLE) == MAP_GRID_OK);
+    count = 0;
+    status = Planner_ReplanWithPolicy(&grid, 1, interior_start, goal,
+        &safety, &workspace, route, MAP_GRID_CELL_COUNT, &count, &cost);
+    if (status == PLANNER_OK) {
+      assert(count >= 2);
+      for (unsigned i = 0; i < count; ++i) {
+        const MapCellPosition p = route[i];
+        assert(grid.cells[p.row][p.col] == MAP_CELL_FREE);
+      }
+      assert(route[count-1].row == goal.row && route[count-1].col == goal.col);
+      printf("PASS synthetic scenario %u: safe route (%u waypoints)\n",
+          scenario + 1, count);
+    } else if (status == PLANNER_NO_PATH || status == PLANNER_ENDPOINT_BLOCKED ||
+               status == PLANNER_UNSAFE_TURN) {
+      assert(count == 0);
+      printf("PASS synthetic scenario %u: safe stop (planner status %d)\n",
+          scenario + 1, (int)status);
+    } else {
+      fprintf(stderr, "FAIL synthetic scenario %u: status %d\n",
+          scenario + 1, (int)status);
+      return 3;
+    }
+  }
   return 0;
 }
-'''.replace("REPLACE_RECTS", rows)
+'''.replace("REPLACE_RECTS", rows).replace("REPLACE_STRESS", stress_rows)
 
 with tempfile.TemporaryDirectory() as folder:
     work = Path(folder)

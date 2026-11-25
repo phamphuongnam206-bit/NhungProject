@@ -8,6 +8,8 @@ import subprocess
 FLASH_LIMIT = 64512
 RAM_LIMIT = 20480
 EXTRA_RAM_MARGIN = 4096  # Beyond linker reservations; not measured stack usage.
+MIN_HEAP_RESERVE = 512
+MIN_STACK_RESERVE = 1024
 REQUIRED = {
     "OneRunAdapter_Poll", "OneRunMission_Init", "OneRunMission_Step",
     "Planner_ReplanWithPolicy", "AStar_FindPathWithPolicy", "PathFollower_Compute",
@@ -49,6 +51,20 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
     static_ram = static_end - 0x20000000
     symbols = subprocess.check_output([tool("nm"), "-S", "--defined-only", str(elf)], text=True)
     names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    addresses = {}
+    for line in symbols.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            addresses[parts[-1]] = int(parts[0], 16)
+    linker_names = ("_end", "_estack", "_Min_Heap_Size", "_Min_Stack_Size")
+    if any(name not in addresses for name in linker_names):
+        raise RuntimeError("Missing linker RAM layout symbols")
+    data_end, stack_top, heap_reserve, stack_reserve = (
+        addresses[name] for name in linker_names)
+    if (heap_reserve < MIN_HEAP_RESERVE or stack_reserve < MIN_STACK_RESERVE or
+            data_end != static_end or stack_top != 0x20000000 + ram_limit or
+            data_end + heap_reserve + stack_reserve != ram_end):
+        raise RuntimeError("Linker heap/stack reservation or RAM layout changed")
     missing = REQUIRED - names
     if require_start_scan:
         missing.update({"NavBoot_Estimate", "StartLocalization_Estimate"} - names)
@@ -79,11 +95,19 @@ def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
           f"RAM including linker reserve {ram}/{ram_limit}; spare {ram_limit - ram}; "
           f"planner storage {storage_size}")
     print("Extra RAM margin >=4096 bytes; runtime stack and hardware NOT verified.")
+    print(f"RAM layout: static end 0x{data_end:08X}; heap reserve {heap_reserve} B; "
+          f"stack reserve {stack_reserve} B; stack top 0x{stack_top:08X}. "
+          "These are linker bounds, not a stack high-water measurement.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("elf", type=Path)
     parser.add_argument("--toolchain-bin", type=Path, required=True)
+    parser.add_argument("--flash-limit", type=int, default=FLASH_LIMIT,
+                        choices=(64512, 130048))
+    parser.add_argument("--require-start-scan", action="store_true")
     args = parser.parse_args()
-    check(args.elf, args.toolchain_bin)
+    check(args.elf, args.toolchain_bin,
+          flash_limit=args.flash_limit,
+          require_start_scan=args.require_start_scan)

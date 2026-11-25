@@ -38,6 +38,23 @@ int main() {
   assert(PlannerRuntime_Poll(&snapshot, true, true) == ONE_RUN_STOPPED);
   assert(PlannerRuntime_Poll(&snapshot, true, true) == ONE_RUN_OK);
 
+  // Two readings without a trustworthy measurement origin must not become
+  // persistent map hits, even when the distances themselves are short.
+  for (unsigned pass = 0; pass < 2; ++pass) {
+    source.now_ms += 10U;
+    source.encoder_ms = source.gyro_ms = source.now_ms;
+    for (auto &range : source.ranges) range.at_ms = source.now_ms;
+    assert(PlannerSnapshot_Build(&source, &limits, &snapshot));
+    assert(!snapshot.ranges_ready);
+    const OneRunStatus status = PlannerRuntime_Poll(&snapshot, true, true);
+    assert(status == ONE_RUN_OK || status == ONE_RUN_STOPPED);
+  }
+  MapCell unverified_left{}, unverified_right{};
+  const MapGrid *runtime = &OneRunFirmwareMission()->runtime_map;
+  assert(MapGrid_GetCell(runtime, 14U, 12U, &unverified_left) == MAP_GRID_OK);
+  assert(MapGrid_GetCell(runtime, 10U, 12U, &unverified_right) == MAP_GRID_OK);
+  assert(unverified_left == MAP_CELL_FREE && unverified_right == MAP_CELL_FREE);
+
   source.ranges_have_origins = true;
   for (unsigned pass = 0; pass < 2; ++pass) {
     source.now_ms += 10U;
@@ -54,7 +71,6 @@ int main() {
     assert(status == ONE_RUN_OK || status == ONE_RUN_STOPPED);
   }
   MapCell left{}, right{};
-  const MapGrid *runtime = &OneRunFirmwareMission()->runtime_map;
   assert(MapGrid_GetCell(runtime, 14U, 12U, &left) == MAP_GRID_OK);
   assert(MapGrid_GetCell(runtime, 10U, 12U, &right) == MAP_GRID_OK);
   assert(left == MAP_CELL_OBSTACLE && right == MAP_CELL_OBSTACLE);

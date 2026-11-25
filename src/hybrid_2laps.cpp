@@ -1109,6 +1109,12 @@ void recordFrame(uint32_t now) {
   if (frameAt == usedFrameAt) return;
   usedFrameAt = frameAt;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+#if HYBRID_PLANNER_ROUTE
+    // Never project a read-time pose into the persistent local obstacle map
+    // when the sensor's measurement origin is not established.
+    if (!vlReady[i] || !frame[i].stableOrigin || !frame[i].mm ||
+        now - frame[i].at > SENSOR_STALE_MS) continue;
+#endif
     if (frame[i].mm > 530) continue;
     const Pose &o = frame[i].origin;
     const Beam &beam = BEAMS[i];

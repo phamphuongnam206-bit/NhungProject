@@ -57,5 +57,54 @@ int main() {
   assert(PlannerRuntime_Poll(&input,true,true)==ONE_RUN_STOPPED);
   assert(OneRunFirmwareMission()->waypoint_count==0);
   assert(PlannerRuntime_Poll(nullptr,true,true)==ONE_RUN_STOPPED);
+
+  // A free-space fixture has a detour around a newly confirmed front hit.
+  // Replanning must wait for stopped confirmation and then replace the route.
+  assert(MapGrid_InitBase(&map) == MAP_GRID_OK);
+  input = {};
+  input.pose = {12.5f, 12.5f, 0}; input.dt_s = .05f;
+  input.safety.now_ms = 2000; input.safety.pose_sample_ms = 2000;
+  input.safety.sensor_sample_ms = 2000; input.safety.front_min_mm = 1000;
+  input.safety.pose_valid = input.safety.sensor_valid = 1;
+  input.safety.control_deadline_ok = 1;
+  assert(PlannerRuntime_Begin(&map, &cfg, true, true));
+  assert(PlannerRuntime_Poll(&input, true, true) == ONE_RUN_STOPPED);
+  assert(PlannerRuntime_Poll(&input, true, true) == ONE_RUN_OK);
+  const OneRunMission *route = OneRunFirmwareMission();
+  const unsigned old_count = route->waypoint_count;
+  assert(old_count >= 2U);
+  for (unsigned i = 0; i < 4; ++i) {
+    input.ranges[i] = {1000, 1};
+    input.range_poses[i] = {12.5f, 12.5f, 0};
+  }
+  input.ranges[1].range_mm = 100;
+  input.ranges_ready = input.range_poses_ready = 1;
+  for (unsigned sample = 0; sample < 2; ++sample) {
+    input.safety.now_ms += 10;
+    input.safety.pose_sample_ms += 10;
+    input.safety.sensor_sample_ms += 10;
+    const OneRunStatus result = PlannerRuntime_Poll(&input, true, false);
+    assert(result == ONE_RUN_OK || result == ONE_RUN_STOPPED);
+  }
+  assert(route->state == ONE_RUN_REPLAN_STOPPED);
+  assert(!PlannerRuntime_PreviewPermitted());
+  PlannerRouteTarget stale{};
+  assert(!PlannerRoute_Target(route,12.5f,12.5f,10,&stale));
+  input.ranges_ready = 0;
+  assert(PlannerRuntime_Poll(&input, true, false) == ONE_RUN_STOPPED);
+  input.safety.now_ms += 100;
+  input.safety.pose_sample_ms += 100;
+  input.safety.sensor_sample_ms += 100;
+  assert(PlannerRuntime_Poll(&input, true, true) == ONE_RUN_STOPPED);
+  assert(route->state == ONE_RUN_FOLLOWING);
+  assert(route->waypoint_count >= 2U);
+  MapCell blocked{};
+  assert(MapGrid_GetCell(&route->runtime_map, 2U, 4U, &blocked) == MAP_GRID_OK);
+  assert(blocked == MAP_CELL_OBSTACLE);
+  for (unsigned i = 0; i < route->waypoint_count; ++i)
+    assert(!(route->waypoints[i].row == 2U && route->waypoints[i].col == 4U));
+  assert(route->waypoint_count != old_count ||
+         route->waypoints[1].row != 2U);
   puts("PASS real planner runtime, stationary gate, stale pose, invalidation and route consumer");
+  puts("PASS confirmed dynamic obstacle: stopped replan replaces unsafe route");
 }

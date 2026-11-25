@@ -16,6 +16,12 @@ ToF response still depends on material, angle, lighting and measured mounts.
 One random obstacle may appear at one of four locations, but their coordinates
 are unknown and are **not** in the static map. Fresh VL53 detections remain
 the only source of dynamic-map updates and replanning for that obstacle.
+`tests/fixtures/synthetic_random_obstacle_stress.json` contains four separate
+host stress rectangles, explicitly marked `SYNTHETIC_STRESS_ONLY`. The real C11
+planner finds a safe full-footprint route in one of these invented cases and
+returns `PLANNER_NO_PATH` in the other three. This does not predict the four
+official locations; it checks that the planner stops when a nominal corridor
+is physically blocked.
 
 ## START and GOAL boundary
 

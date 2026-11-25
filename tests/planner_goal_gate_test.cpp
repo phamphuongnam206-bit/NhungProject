@@ -44,5 +44,7 @@ int main() {
   assert(PlannerGoalGate_Complete(exit, true, true, 150, -10, 3.14f));
   assert(!PlannerGoalGate_Complete(exit, true, true, 124, -10, 3.14f));
   assert(!PlannerGoalGate_Complete(exit, true, true, 150, -10, 0));
+  exit.heading_tolerance_rad = 3.2f;
+  assert(!PlannerGoalGate_Complete(exit, true, true, 150, -10, 0));
   puts("PASS goal: settle, timeout, reviewed config, footprint and heading");
 }
