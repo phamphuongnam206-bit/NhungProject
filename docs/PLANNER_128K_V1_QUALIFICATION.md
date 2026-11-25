@@ -27,7 +27,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 66892 / 130048 B | 14840 B | 16376 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 66964 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, START adapter, route deviation, no progress, wheel stall, rotational
@@ -66,14 +66,17 @@ tests are fixtures; they are not copied into the robot's operating config.
 ## Timing measurements prepared for SWD
 
 The 128 KiB build enables the Cortex-M3 DWT cycle counter at setup and records
-`startScanMaxCycles` around the real START scan and `plannerPollMaxCycles`
-around the real planner poll. Both are monotonic maxima and stay zero until
-reviewed inputs allow those functions to execute. In VS Code or another SWD
-debugger, watch those two variables and `SystemCoreClock`; convert to
+`startScanMaxCycles` around the real START scan, `plannerPollMaxCycles`
+around the real planner poll, and `controlLoopMaxCycles` around every complete
+Arduino `loop()` call, including early returns. The START/planner maxima stay
+zero until reviewed inputs allow those functions to execute. In VS Code or
+another SWD debugger, watch these variables and `SystemCoreClock`; convert to
 milliseconds as `cycles * 1000 / SystemCoreClock`. Check that
 `CoreDebug->DEMCR` bit 24 and `DWT->CTRL` bit 0 are set. This is observation,
-not an automatic timing PASS. The two values do not include local-arc scoring,
-I2C, serial I/O, interrupt interference or the whole control-loop WCET.
+not an automatic timing PASS. The full-loop value includes local-arc scoring
+and I2C calls on that execution path, but cannot replace testing the worst
+physical sensor and replanning conditions; interrupt timing requires separate
+observation.
 
 PASS before motor unlock requires real PCB measurements demonstrating that
 planner timing and total loop timing fit the motor-lease and control-loop

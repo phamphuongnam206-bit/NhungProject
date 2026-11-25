@@ -202,6 +202,7 @@ volatile float startLocalizationMeanErrorCm = 0;
 volatile uint32_t startLocalizationCandidates = 0;
 volatile uint32_t startScanMaxCycles = 0;
 volatile uint32_t plannerPollMaxCycles = 0;
+volatile uint32_t controlLoopMaxCycles = 0;
 PlannerHealthConfig plannerHealthConfig{}; // NEEDS_MEASUREMENT
 PlannerMotionHealth plannerHealth{};
 #endif
@@ -738,6 +739,7 @@ void initPlannerDiagnosticConfig() {
   plannerGoalVerified = false;
   startScanMaxCycles = 0;
   plannerPollMaxCycles = 0;
+  controlLoopMaxCycles = 0;
 #endif
   plannerRuntimeReady = false;
   plannerGoalReached = false;
@@ -763,6 +765,11 @@ void recordPlannerCycles(volatile uint32_t &maximum, uint32_t started) {
   const uint32_t elapsed = DWT->CYCCNT - started; // wraps modulo 2^32
   if (elapsed > maximum) maximum = elapsed;
 }
+
+struct ControlLoopCycleScope {
+  uint32_t started = DWT->CYCCNT;
+  ~ControlLoopCycleScope() { recordPlannerCycles(controlLoopMaxCycles, started); }
+};
 
 void attemptStartLocalization(uint32_t now) {
   if (plannerPoseVerified || !plannerMapVerified ||
@@ -1472,6 +1479,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
 }
 
 void loop() {
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  ControlLoopCycleScope loopCycles{}; // records every return path
+#endif
   reloadWatchdog();
 #if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
   serviceBluetooth();
