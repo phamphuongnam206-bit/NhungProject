@@ -78,10 +78,12 @@ fixture's distances and pose are synthetic source/build checks only.
 - The existing A*, Pure Pursuit, dynamic sensor map, replan policy, local arc,
   independent watchdog and STBY motor lease remain in the image. Their
   timing and behavior on this PCB have not been requalified by this build.
-- The nominal 17-obstacle C11 A* topology test finds a route, but the same
-  route with the actual footprint and clearance policy fails with
-  `PLANNER_UNSAFE_TURN`. This is an open V1 safety blocker, not a PASS.
-  START_ENTRY and GOAL_EXIT are not wired into the locked runtime. The PB1
+- The nominal 17-obstacle C11 A* topology test finds a route. The
+  full-footprint policy rejects the near-line start as `PLANNER_UNSAFE_TURN`,
+  but passes from a farther interior fixture at (42.5,52.5) cm. The
+  START_ENTRY segment needed to reach that area is not qualified, so the
+  whole run remains an open V1 safety blocker. START_ENTRY and GOAL_EXIT are
+  not wired into the locked runtime. The PB1
   start-button software gate now requires release then press, but has no
   physical PCB test; see `COURSE_LAYOUT_17.md`.
 

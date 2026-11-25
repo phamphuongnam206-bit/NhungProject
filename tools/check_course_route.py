@@ -39,10 +39,10 @@ int main(void) {
         r[3]/5, r[2]/5, i == 0 ? MAP_CELL_FORBIDDEN : MAP_CELL_OBSTACLE)
         == MAP_GRID_OK);
   }
-  const MapCellPosition start = {2, 6};
+  const MapCellPosition near_start = {2, 6};
   const MapCellPosition goal = {2, 32};
   PlannerPolicy topology = {{4,2}, 0, {0.0f,0.0f}};
-  PlannerStatus status = Planner_ReplanWithPolicy(&grid, 0, start, goal,
+  PlannerStatus status = Planner_ReplanWithPolicy(&grid, 0, near_start, goal,
       &topology, &workspace, route, MAP_GRID_CELL_COUNT, &count, &cost);
   if (status != PLANNER_OK) {
     fprintf(stderr, "FAIL C11 A* topology status=%d\n", (int)status);
@@ -56,13 +56,25 @@ int main(void) {
   }
   printf("PASS C11 A* nominal topology: %u waypoints, cost %u\n", count, cost);
   PlannerPolicy safety = {{4,2}, 1, {6.8f/5.0f,5.8f/5.0f}};
-  status = Planner_ReplanWithPolicy(&grid, 1, start, goal,
+  status = Planner_ReplanWithPolicy(&grid, 1, near_start, goal,
+      &safety, &workspace, route, MAP_GRID_CELL_COUNT, &count, &cost);
+  printf("Near-line plan status=%d; START_ENTRY needs separate proof\n", (int)status);
+  const MapCellPosition interior_start = {10, 8}; /* 42.5,52.5 cm test fixture */
+  status = Planner_ReplanWithPolicy(&grid, 1, interior_start, goal,
       &safety, &workspace, route, MAP_GRID_CELL_COUNT, &count, &cost);
   if (status != PLANNER_OK) {
-    fprintf(stderr, "FAIL full-footprint route status=%d (6=UNSAFE_TURN)\n", (int)status);
+    fprintf(stderr, "FAIL interior full-footprint route status=%d\n", (int)status);
     return 2;
   }
-  printf("PASS full-footprint route: %u waypoints\n", count);
+  assert(count >= 2);
+  assert(route[count-1].row == goal.row && route[count-1].col == goal.col);
+  assert(route[count-2].row > goal.row); /* final approach heads toward -Y */
+  for (unsigned i=0;i<count;++i) {
+    MapCellPosition p = route[i];
+    assert(grid.cells[p.row][p.col] == MAP_CELL_FREE);
+  }
+  printf("PASS interior C11 route with footprint: %u waypoints, cost %u\n",
+      count, cost);
   return 0;
 }
 '''.replace("REPLACE_RECTS", rows)

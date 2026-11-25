@@ -56,12 +56,16 @@ without violating the stated maximum.
 `python -m unittest discover -s tests -p test_course_layout.py -v` checks
 all 17 nominal blocks, forbidden-zone agreement and ToF classification.
 `python tools/check_course_route.py --core <checkout> --zig <zig>` runs real
-C11 planning on those 18 rectangles. The topological A* path from interior
-START approach (32.5,12.5) to interior GOAL approach (162.5,12.5) succeeds,
-but the current full-footprint planner returns `PLANNER_UNSAFE_TURN` (status 6)
-with its actual clearance policy. This is a **route-safety FAIL**, not a
-successful one-run simulation; the motor lock must remain on. It is not safe
-to remove footprint checks merely to obtain a path.
+C11 planning on those 18 rectangles. Topological A* finds a path from the
+near-line interior cell (32.5,12.5) to GOAL approach (162.5,12.5), but the
+full-footprint planner rejects that direct route as `PLANNER_UNSAFE_TURN` (6).
+Its first raw diagonal step lacks body clearance near the lower boundary.
+The same full-footprint policy **passes** from a farther interior test cell
+(42.5,52.5) to (162.5,12.5) with four waypoints and a downward final leg.
+The farther cell is a host fixture, not an operational START waypoint. This
+proves only that the interior course segment has a valid nominal path. The
+full START_ENTRY from behind the line and GOAL_EXIT beyond it remain untested;
+motor lock stays on. Do not remove footprint checks to force a direct route.
 
 `pc_sim/mapping.py` is a legacy 13-block simulation with guessed random
 locations; it is not the V1 course source. The JSON fixture above records the
