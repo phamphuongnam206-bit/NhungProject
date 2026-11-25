@@ -18,7 +18,10 @@ REQUIRED = {
 }
 
 
-def check(elf, toolchain_bin):
+def check(elf, toolchain_bin, flash_limit=FLASH_LIMIT, ram_limit=RAM_LIMIT,
+          require_start_scan=False):
+    if flash_limit not in (64512, 130048) or ram_limit != 20480:
+        raise RuntimeError("Unexpected board memory budget")
     def tool(name):
         suffix = ".exe" if os.name == "nt" else ""
         return str(Path(toolchain_bin) / ("arm-none-eabi-" + name + suffix))
@@ -47,6 +50,8 @@ def check(elf, toolchain_bin):
     symbols = subprocess.check_output([tool("nm"), "-S", "--defined-only", str(elf)], text=True)
     names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     missing = REQUIRED - names
+    if require_start_scan and "NavBoot_Estimate" not in names:
+        missing.add("NavBoot_Estimate")
     if missing:
         raise RuntimeError("Planner was not fully linked; missing: " + ", ".join(sorted(missing)))
     storage_line = next(line for line in symbols.splitlines()
@@ -54,10 +59,10 @@ def check(elf, toolchain_bin):
     storage_size = int(storage_line.split()[1], 16)
     if storage_size < 11544:
         raise RuntimeError("Mission workspace was not retained in static storage")
-    if not flash or not ram or flash > FLASH_LIMIT or ram > RAM_LIMIT - EXTRA_RAM_MARGIN:
+    if not flash or not ram or flash > flash_limit or ram > ram_limit - EXTRA_RAM_MARGIN:
         raise RuntimeError(f"Memory budget exceeded/invalid: Flash={flash}, allocated RAM={ram}")
-    print(f"PASS planner ELF: Flash image span {flash}/{FLASH_LIMIT}; static RAM {static_ram}; "
-          f"RAM including linker reserve {ram}/{RAM_LIMIT}; spare {RAM_LIMIT - ram}; "
+    print(f"PASS planner ELF: Flash image span {flash}/{flash_limit}; static RAM {static_ram}; "
+          f"RAM including linker reserve {ram}/{ram_limit}; spare {ram_limit - ram}; "
           f"planner storage {storage_size}")
     print("Extra RAM margin >=4096 bytes; runtime stack and hardware NOT verified.")
 
