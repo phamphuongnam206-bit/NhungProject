@@ -19,6 +19,9 @@
 #if HYBRID_PLANNER_128K && HYBRID_PLANNER_INPUTS_VERIFIED
 #error "128 KiB qualification must keep planner inputs unverified"
 #endif
+#if defined(HYBRID_V1_STAGING) && (!HYBRID_PLANNER_128K || !HYBRID_MOTOR_LOCK || HYBRID_PLANNER_INPUTS_VERIFIED)
+#error "V1 staging requires the locked, unverified 128 KiB qualification gates"
+#endif
 #if HYBRID_PLANNER_ROUTE
 #if !HYBRID_MOTOR_LOCK
 #error "Planner route integration is diagnostic only and requires motor lock"

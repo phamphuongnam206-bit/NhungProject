@@ -13,6 +13,7 @@
 - Added a synthetic boundary-to-boundary host integration case: surveyed START-entry geometry, C11 waypoint trace to interior GOAL, and full-body GOAL-exit completion. It also checks both swept fixed-obstacle corridors. This pose trace is imposed by the test and does not establish controller dynamics or real sensor response.
 - Fixed P0: a terminal planner error now calls `halt("PLANNER_FAULT", Fault::CONTROL)` after invalidating the runtime. Previously the next loop could call `PlannerRuntime_Begin` again because only `plannerRuntimeReady` was cleared. `LOCKED` is latched until reset; the loop cannot consume a cached plan in this mode.
 - Qualification stays `HYBRID_MOTOR_LOCK=1`, `HYBRID_PLANNER_INPUTS_VERIFIED=0`; default environment stays `hybrid_2laps`.
+- `hybrid_v1_staging` is a separate build target inheriting the locked 128 KiB gates and ELF checks. It has no operating authorization; a later reviewed change must supply physical evidence before any unlock.
 
 ## Verification
 
@@ -20,7 +21,7 @@
 |---|---|---|
 | Host C11 runtime, snapshot, START, GOAL, motion health | PASS | Synthetic fixtures; no physical pose or sensor validation |
 | Python course/calibration tests | PASS, 10 tests | Nominal geometry only |
-| ARM `hybrid_planner_check_128k` and ELF checker | PASS | Locked image, no Flash write |
+| ARM `hybrid_planner_check`, `hybrid_planner_check_128k`, `hybrid_v1_staging` and ELF checker | PASS | Locked images, no Flash write |
 | Flash image span | 74,944 / 130,048 B | ELF load span; PlatformIO reports 74,632 B sections |
 | SRAM | 14,848 B static; 16,384 / 20,480 B including linker reserve | 4,096 B spare is not measured stack high-water |
 | Hardware, upper Flash write/retention, motor motion | NOT TESTED | Requires physical acceptance |
