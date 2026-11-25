@@ -4,6 +4,12 @@
 #include <stdio.h>
 
 int main() {
+  assert(StartLocalization_FrameDue(1000U, 0U));
+  assert(!StartLocalization_FrameDue(1000U, 1000U));
+  assert(!StartLocalization_FrameDue(1499U, 1000U));
+  assert(StartLocalization_FrameDue(1500U, 1000U));
+  assert(StartLocalization_FrameDue(300U, UINT32_MAX - 200U));
+  assert(!StartLocalization_FrameDue(0U, UINT32_MAX - 200U));
   const NavBootRect block[] = {{68.0f, 55.0f, 8.0f, 8.0f}};
   StartLocalizationInput input{};
   auto &c = input.scan;

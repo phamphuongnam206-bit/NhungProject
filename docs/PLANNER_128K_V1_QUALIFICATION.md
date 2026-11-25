@@ -27,7 +27,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 67556 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67580 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -54,6 +54,8 @@ fixture's distances and pose are synthetic source/build checks only.
   This is a provisional computation cap, not an ARM timing measurement; an
   ambiguous result cannot authorize a pose. The pose window limits estimated
   motion; it is not an independent physical proof that the robot is still.
+  Failed/ambiguous scans retry only on a new, fresh frame at least 500 ms after
+  the previous attempt, so every VL53 frame cannot trigger a full scan.
 - The planner's completion status requires a separately reviewed GOAL zone,
   correct heading, full robot footprint inside that zone, and an 80 ms interval
   without encoder pulses after the stop command. If settling takes over 500 ms

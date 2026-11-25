@@ -775,7 +775,9 @@ void attemptStartLocalization(uint32_t now) {
   PlannerPoseSample stablePose{};
   if (plannerPoseVerified || !plannerMapVerified ||
       !startRegion.verified || !startMountsVerified || !frameReady ||
-      frameAt == plannerLastPollMs || !wheelsSettled() ||
+      now - frameAt > 100U ||
+      !StartLocalization_FrameDue(frameAt, plannerLastPollMs) ||
+      !wheelsSettled() ||
       !poseHistory.stableOrigin(now, &stablePose)) return;
   // Before runtime begins this timestamp belongs to START scan deduplication.
   // beginPlannerRuntime replaces it with the scheduler timestamp afterwards.
