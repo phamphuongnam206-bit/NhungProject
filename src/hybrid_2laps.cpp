@@ -34,6 +34,7 @@
 #include "planner_motion_health.h"
 #include "planner_goal_gate.h"
 #include "planner_start_entry.h"
+#include "planner_goal_exit.h"
 #endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
@@ -208,6 +209,11 @@ float startHalfFovRad[SENSOR_COUNT] = {};
 MapCellPosition reviewedGoal{};
 volatile bool plannerGoalVerified = false;
 PlannerGoalGateConfig goalGate{}; // NEEDS_REVIEWED_FINISH_RULE
+// Reviewed calibration belongs in Flash. Zero means NEEDS_MEASUREMENT and
+// fails closed; a volatile-qualified read below keeps the guard in this
+// diagnostic image without placing unmeasured values in SRAM.
+struct GoalExitMeasurements { float terminalCenterYcm, brakeOverrunCm; };
+const GoalExitMeasurements goalExitMeasurements{0.0f, 0.0f};
 float gyroMapYawOffsetRad = 0;
 volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
 volatile float startLocalizationMeanErrorCm = 0;
@@ -1123,6 +1129,64 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
   return true;
 }
 
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+enum class GoalExitPreflight { CLEAR, WAIT_SENSORS, UNVERIFIED, BLOCKED };
+
+GoalExitPreflight checkGoalExitCorridor(uint32_t now, bool pulseQuiet) {
+  PlannerGoalExitConfig c{};
+  c.verified = plannerGoalVerified && goalGate.verified;
+  c.gate_xmin_cm = goalGate.xmin_cm;
+  c.gate_xmax_cm = goalGate.xmax_cm;
+  c.line_y_cm = goalGate.ymax_cm;
+  c.exit_ymin_cm = goalGate.ymin_cm;
+  c.half_length_cm = HALF_LENGTH;
+  c.half_width_cm = HALF_WIDTH;
+  c.obstacle_margin_cm = OBSTACLE_MARGIN_CM;
+  c.heading_tolerance_rad = goalGate.heading_tolerance_rad;
+  const volatile GoalExitMeasurements *measurements = &goalExitMeasurements;
+  c.terminal_center_y_cm = measurements->terminalCenterYcm;
+  c.brake_overrun_cm = measurements->brakeOverrunCm;
+  if (!c.verified || !(c.brake_overrun_cm > 0.0f) ||
+      !isfinite(c.brake_overrun_cm) ||
+      !isfinite(c.terminal_center_y_cm) ||
+      !(c.terminal_center_y_cm < c.line_y_cm))
+    return GoalExitPreflight::UNVERIFIED;
+  bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                   frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+  }
+  const bool poseFresh = plannerPoseVerified && gyroReady &&
+      now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+      now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+  if (!poseFresh) return GoalExitPreflight::BLOCKED;
+  if (!rangesFresh) return GoalExitPreflight::WAIT_SENSORS;
+  const auto clearWith = [&](const PlannerGoalExitRect *obstacle, size_t count,
+                             float margin) {
+    c.obstacle_margin_cm = margin;
+    return PlannerGoalExit_CorridorClear(c, true, poseFresh, rangesFresh,
+        pulseQuiet && wheelsSettled(), pose.p.x, pose.p.y, pose.yaw,
+        obstacle, count);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM))
+    return GoalExitPreflight::BLOCKED;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM))
+      return GoalExitPreflight::BLOCKED;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f))
+      return GoalExitPreflight::BLOCKED;
+  }
+  return GoalExitPreflight::CLEAR;
+}
+#endif
+
 bool finishPassed(float x, float y, float s, float c) {
 #if HYBRID_PLANNER_ROUTE
   // Old ROUTE's final two points do not define the new route's finish gate.
@@ -1645,19 +1709,29 @@ void loop() {
     plan = {};
     stopMotors(true);
     const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
-    const PlannerGoalDecision decision = plannerGoalVerified ?
-        PlannerGoalGate_Decide(goalGate, true, pulseQuiet,
-            uint32_t(now - stoppedAt), 500U, pose.p.x, pose.p.y, pose.yaw) :
-        PlannerGoalDecision::REJECT;
-    if (decision == PlannerGoalDecision::ACCEPT) plannerGoalReached = true;
-    else if (decision == PlannerGoalDecision::REJECT ||
-             decision == PlannerGoalDecision::TIMEOUT) {
-      halt("GOAL_NOT_CONFIRMED", Fault::CONTROL);
+    if (uint32_t(now - stoppedAt) > 500U) {
+      halt("GOAL_SETTLE_TIMEOUT", Fault::CONTROL);
       return;
-    } else {
+    }
+    if (!pulseQuiet) {
       status = "PLANNER_GOAL_SETTLING";
       return;
     }
+    const GoalExitPreflight preflight = checkGoalExitCorridor(now, pulseQuiet);
+    if (preflight == GoalExitPreflight::WAIT_SENSORS) {
+      status = "GOAL_EXIT_SENSOR_SETTLING";
+      return;
+    }
+    if (preflight != GoalExitPreflight::CLEAR) {
+      halt(preflight == GoalExitPreflight::UNVERIFIED ?
+          "GOAL_EXIT_UNVERIFIED" : "GOAL_EXIT_BLOCKED", Fault::CONTROL);
+      return;
+    }
+    // A* has only reached an interior waypoint. Until a separately reviewed
+    // GOAL_EXIT controller exists, a clear corridor cannot authorize motion
+    // or mark the competition finish.
+    halt("GOAL_EXIT_CONTROL_PENDING", Fault::CONTROL);
+    return;
   }
 #endif
   if (plannerGoalReached) {
