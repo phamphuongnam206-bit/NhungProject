@@ -95,15 +95,21 @@ fixture's distances and pose are synthetic source/build checks only.
   face +Y within the reviewed tolerance, pose/ranges must be fresh, wheels
   must be stopped, and the current footprint must pass local collision checks.
   This guard does not supply a path or drive the car from behind the line;
-  START_ENTRY and GOAL_EXIT motion remain unimplemented. On planner COMPLETE,
+  START_ENTRY motion remains unimplemented. On planner COMPLETE,
   the 128 KiB firmware stops, waits for quiet encoder pulses, and calls the
   GOAL_EXIT corridor checker over the fixed map and live obstacle hits. It
   distinguishes missing measurements, unsettled sensors and blocked geometry.
-  The Flash-resident terminal Y and brake overrun are both zero
-  (`NEEDS_MEASUREMENT`), so the preflight rejects the current image. Even a
-  clear preflight halts with `GOAL_EXIT_CONTROL_PENDING`; it never commands
-  exit motion or marks FINISHED. The ELF checker requires those slots to stay
-  in read-only Flash, preserving the 4 KiB RAM reserve.
+  A separate straight GOAL_EXIT controller now has DRIVE, BRAKE, COMPLETE and
+  FAULT states. Each tick checks pose/range freshness, fixed and live obstacle
+  corridor, heading, gate width, front clearance, progress and timeout. It
+  only marks FINISHED after the full body crosses y=0, the measured brake
+  envelope holds and encoder pulses are quiet. Its Flash-resident terminal Y,
+  brake overrun, speed, progress threshold and time limits remain zero
+  (`NEEDS_MEASUREMENT`), so the preflight rejects the current image and no
+  exit command can be issued. The ELF checker keeps these slots in read-only
+  Flash and the 4 KiB RAM reserve. The recent-hit buffer was reduced from 20
+  to 18 entries (12 bytes each) to accommodate the exit state; overflow still
+  replaces the oldest hit. This needs a physical dynamic-obstacle test.
   The PB1
   start-button software gate now requires release then press, but has no
   physical PCB test; see `COURSE_LAYOUT_17.md`.

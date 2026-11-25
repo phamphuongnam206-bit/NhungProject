@@ -38,14 +38,16 @@ V1 needs separate guarded states before motor unlock:
    `y + projected_half_length < 0` and the whole body between X=120..180,
    then require stopped encoder pulses before `FINISHED`.
 
-`START_ENTRY` and `GOAL_EXIT` motion are **not implemented in the current locked
-image**. `PlannerGoalExit_CorridorClear` checks a straight exit from a verified
+`START_ENTRY` motion is **not implemented in the current locked image**.
+`PlannerGoalExit_CorridorClear` checks a straight exit from a verified
 interior pose, the full body across y=0, a reviewed brake runout and
-intersections with fixed or dynamic obstacles. The 128 KiB firmware calls it
-only after the planner completes and the wheels settle, then halts; it does
-not command the exit. Its two Flash calibration values remain zero, so the
-current image rejects GOAL_EXIT. Host test values (including 2 cm brake
-runout) are synthetic. The 128 KiB image now waits for a stable PB1 release
+ intersections with fixed or dynamic obstacles. The 128 KiB firmware calls it
+ after the planner completes and the wheels settle. A separate straight-exit
+ state machine then checks the live corridor and only accepts FINISHED when
+ the whole body crosses the line and the wheels settle. Terminal Y, brake
+ runout, speed and time limits in Flash are still zero, so the current image
+ rejects GOAL_EXIT before motion. Host test values (including 2 cm brake
+ runout) are synthetic. The 128 KiB image now waits for a stable PB1 release
 followed by a
 fresh 30 ms press before attempting planner control. PB1 is the reviewed PCB
 mode-button input with pull-up; this is a software start gate, not START_ENTRY.

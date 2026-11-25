@@ -80,7 +80,8 @@ with tempfile.TemporaryDirectory(prefix='nhung_runtime_') as folder:
                     '-o', str(pose_window)], check=True)
     subprocess.run([str(pose_window)], check=True)
     for name in ('planner_motion_health', 'planner_goal_gate',
-                 'planner_start_entry', 'planner_goal_exit',
+                  'planner_start_entry', 'planner_goal_exit',
+                  'planner_goal_exit_motion',
                  'planner_kinematics_gate'):
         test = Path(folder) / (name + '.exe')
         subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',

@@ -35,6 +35,7 @@
 #include "planner_goal_gate.h"
 #include "planner_start_entry.h"
 #include "planner_goal_exit.h"
+#include "planner_goal_exit_motion.h"
 #include "map_one_run_calibration.h"
 #endif
 PlannerRouteTarget plannerRouteTarget{};
@@ -213,8 +214,12 @@ PlannerGoalGateConfig goalGate{}; // NEEDS_REVIEWED_FINISH_RULE
 // Reviewed calibration belongs in Flash. Zero means NEEDS_MEASUREMENT and
 // fails closed; a volatile-qualified read below keeps the guard in this
 // diagnostic image without placing unmeasured values in SRAM.
-struct GoalExitMeasurements { float terminalCenterYcm, brakeOverrunCm; };
-const GoalExitMeasurements goalExitMeasurements{0.0f, 0.0f};
+struct GoalExitMeasurements {
+  float terminalCenterYcm, brakeOverrunCm, speedCmS, progressEpsilonCm;
+  uint32_t timeoutMs, stallMs;
+};
+const GoalExitMeasurements goalExitMeasurements{0.0f, 0.0f, 0.0f, 0.0f, 0U, 0U};
+PlannerGoalExitMotion goalExitMotion{};
 float gyroMapYawOffsetRad = 0;
 volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
 volatile float startLocalizationMeanErrorCm = 0;
@@ -1062,7 +1067,9 @@ void updateProgress() {
 // Luu vai diem vat can gan nhat da do de xe khong quay vao vat khi mat do
 // khong con chieu thang vao no. Vong doi ngan de theo kip vat moi.
 struct Hit { Point p; uint32_t at; };
-constexpr uint8_t MAX_HITS = 20;
+// 18 recent hits retain the one-obstacle replan history within the 20 KiB
+// SRAM budget after adding the GOAL exit state. Overflow replaces oldest.
+constexpr uint8_t MAX_HITS = 18;
 constexpr uint32_t HIT_TTL_MS = 3500;
 Hit hits[MAX_HITS] = {};
 uint8_t nextHit = 0;
@@ -1145,8 +1152,9 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
 #if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
 enum class GoalExitPreflight { CLEAR, WAIT_SENSORS, UNVERIFIED, BLOCKED };
 
-GoalExitPreflight checkGoalExitCorridor(uint32_t now, bool pulseQuiet) {
-  PlannerGoalExitConfig c{};
+PlannerGoalExitMotionConfig goalExitMotionConfig() {
+  PlannerGoalExitMotionConfig m{};
+  PlannerGoalExitConfig &c = m.corridor;
   c.verified = plannerGoalVerified && goalGate.verified;
   c.gate_xmin_cm = goalGate.xmin_cm;
   c.gate_xmax_cm = goalGate.xmax_cm;
@@ -1156,13 +1164,41 @@ GoalExitPreflight checkGoalExitCorridor(uint32_t now, bool pulseQuiet) {
   c.half_width_cm = HALF_WIDTH;
   c.obstacle_margin_cm = OBSTACLE_MARGIN_CM;
   c.heading_tolerance_rad = goalGate.heading_tolerance_rad;
-  const volatile GoalExitMeasurements *measurements = &goalExitMeasurements;
-  c.terminal_center_y_cm = measurements->terminalCenterYcm;
-  c.brake_overrun_cm = measurements->brakeOverrunCm;
-  if (!c.verified || !(c.brake_overrun_cm > 0.0f) ||
-      !isfinite(c.brake_overrun_cm) ||
-      !isfinite(c.terminal_center_y_cm) ||
-      !(c.terminal_center_y_cm < c.line_y_cm))
+  const volatile GoalExitMeasurements *measured = &goalExitMeasurements;
+  c.terminal_center_y_cm = measured->terminalCenterYcm;
+  c.brake_overrun_cm = measured->brakeOverrunCm;
+  m.speed_cm_s = measured->speedCmS;
+  m.progress_epsilon_cm = measured->progressEpsilonCm;
+  m.timeout_ms = measured->timeoutMs;
+  m.stall_ms = measured->stallMs;
+  return m;
+}
+
+bool goalExitMovingPathClear(const PlannerGoalExitMotionConfig &m, uint32_t now) {
+  const auto clearWith = [&](const PlannerGoalExitRect *box, size_t count,
+                             float margin) {
+    return PlannerGoalExitMotion_PathClear(m, pose.p.x, pose.p.y, pose.yaw,
+                                           box, count, margin);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM)) return false;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM)) return false;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f)) return false;
+  }
+  return true;
+}
+
+GoalExitPreflight checkGoalExitCorridor(uint32_t now, bool pulseQuiet) {
+  const PlannerGoalExitMotionConfig m = goalExitMotionConfig();
+  PlannerGoalExitConfig c = m.corridor;
+  if (!PlannerGoalExitMotion_ConfigReady(m))
     return GoalExitPreflight::UNVERIFIED;
   bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
@@ -1716,6 +1752,40 @@ void loop() {
   if (mode == RunMode::LOCKED) return;
 #if HYBRID_PLANNER_128K
   if (plannerStatus == ONE_RUN_COMPLETE) {
+    if (goalExitMotion.phase != PlannerGoalExitPhase::IDLE) {
+      const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
+      if (goalExitMotion.phase == PlannerGoalExitPhase::BRAKE &&
+          (dL != 0 || dR != 0)) lastPlanMs = now;
+      const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
+      const bool poseFresh = plannerPoseVerified && gyroReady &&
+          now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+          now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+      bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+      for (uint8_t i = 0; i < SENSOR_COUNT; ++i)
+        rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                       frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+      const PlannerGoalExitPhase phase = PlannerGoalExitMotion_Step(
+          &goalExitMotion, motionConfig, now, pose.p.x, pose.p.y, pose.yaw,
+          poseFresh, rangesFresh,
+          !emergency && frontSpeedLimit(frontClearance) >= motionConfig.speed_cm_s &&
+              goalExitMovingPathClear(motionConfig, now),
+          pulseQuiet && wheelsSettled() && dL == 0 && dR == 0);
+      plan = {};
+      if (phase == PlannerGoalExitPhase::FAULT) {
+        halt("GOAL_EXIT_FAULT", Fault::CONTROL);
+      } else if (phase == PlannerGoalExitPhase::COMPLETE) {
+        stopMotors(true);
+        halt("FINISH_LINE_PASSED", Fault::NONE);
+      } else if (phase == PlannerGoalExitPhase::BRAKE) {
+        if (goalExitMotion.brake_ms == now) lastPlanMs = now;
+        status = "GOAL_EXIT_BRAKE";
+        stopMotors(true);
+      } else if (phase == PlannerGoalExitPhase::DRIVE) {
+        status = "GOAL_EXIT_DRIVE";
+        driveForward(motionConfig.speed_cm_s, 0.0f, motorDt);
+      }
+      return;
+    }
     // stopMotors resets the PI speed filter, so use actual encoder pulses.
     // Require an 80 ms pulse-free interval before accepting the final pose.
     if (dL != 0 || dR != 0) lastPlanMs = now;
@@ -1740,10 +1810,17 @@ void loop() {
           "GOAL_EXIT_UNVERIFIED" : "GOAL_EXIT_BLOCKED", Fault::CONTROL);
       return;
     }
-    // A* has only reached an interior waypoint. Until a separately reviewed
-    // GOAL_EXIT controller exists, a clear corridor cannot authorize motion
-    // or mark the competition finish.
-    halt("GOAL_EXIT_CONTROL_PENDING", Fault::CONTROL);
+    const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
+    if (!PlannerGoalExitMotion_Begin(&goalExitMotion, motionConfig, true,
+                                     now, pose.p.y)) {
+      halt("GOAL_EXIT_UNVERIFIED", Fault::CONTROL);
+      return;
+    }
+    status = "GOAL_EXIT_READY";
+    return;
+  }
+  if (goalExitMotion.phase != PlannerGoalExitPhase::IDLE) {
+    halt("GOAL_EXIT_MISSION_LOST", Fault::CONTROL);
     return;
   }
 #endif
