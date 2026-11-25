@@ -27,7 +27,7 @@ destructive retention test.
 | Environment | Build | Flash image span | Static SRAM | SRAM including linker reserve |
 |---|---|---:|---:|---:|
 | `hybrid_planner_check` | PASS | 61684 / 64512 B | 14784 B | 16320 / 20480 B |
-| `hybrid_planner_check_128k` | PASS | 66964 / 130048 B | 14844 B | 16384 / 20480 B |
+| `hybrid_planner_check_128k` | PASS | 67508 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
 snapshot, and all four ranges reaching the runtime map. The fixture places
@@ -48,7 +48,10 @@ fixture's distances and pose are synthetic source/build checks only.
   not physical PB0 timing under a blocked I2C bus.
 - START localization from PR #23 only accepts four fresh, valid VL53 readings
   while stationary, and requires a reviewed map, START search bounds, and
-  sensor mounts. An ambiguous result cannot authorize a pose.
+  sensor mounts. The firmware adapter refuses search grids over 512 candidate
+  poses or more than 18 fixed/forbidden rectangles before the expensive scan.
+  This is a provisional computation cap, not an ARM timing measurement; an
+  ambiguous result cannot authorize a pose.
 - The planner's completion status requires a separately reviewed GOAL zone,
   correct heading, full robot footprint inside that zone, and an 80 ms interval
   without encoder pulses after the stop command. If settling takes over 500 ms

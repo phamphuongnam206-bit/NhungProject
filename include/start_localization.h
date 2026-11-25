@@ -4,6 +4,10 @@ extern "C" {
 #include "nav_bootstrap.h"
 }
 
+// Conservative qualification guard; re-evaluate after measuring ARM WCET.
+constexpr uint32_t START_LOCALIZATION_MAX_CANDIDATES = 512U;
+constexpr uint16_t START_LOCALIZATION_MAX_BLOCKED_RECTS = 18U;
+
 // Configuration is supplied by the caller from measured course and mount data.
 // No default START position or guessed sensor angle can authorize a pose.
 struct StartLocalizationInput {

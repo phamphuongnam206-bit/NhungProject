@@ -42,5 +42,16 @@ int main() {
   input.sample_ms[0] = 990U;
   input.ranges[0].valid = 0;
   assert(StartLocalization_Estimate(&input).status == NAV_BOOT_NOT_ENOUGH_DATA);
-  puts("PASS START adapter: verified, stationary, fresh and four ranges");
+  input.ranges[0].valid = 1;
+  const NavBootConfig saved = c;
+  c.xmin_cm = 20.0f; c.xmax_cm = 71.1f; c.xy_step_cm = 0.1f;
+  c.ymin_cm = c.ymax_cm = 20.0f; c.heading_span_rad = 0.0f;
+  assert(StartLocalization_Estimate(&input).status != NAV_BOOT_BAD_INPUT);
+  c.xmax_cm = 71.3f;
+  assert(StartLocalization_Estimate(&input).status == NAV_BOOT_BAD_INPUT);
+  c = saved;
+  assert(StartLocalization_Estimate(&input).status == NAV_BOOT_CONFIDENT);
+  c.blocked_count = 19U; // rejected before the one-element test pointer is read
+  assert(StartLocalization_Estimate(&input).status == NAV_BOOT_BAD_INPUT);
+  puts("PASS START adapter: verified, fresh, four ranges and bounded scan");
 }
