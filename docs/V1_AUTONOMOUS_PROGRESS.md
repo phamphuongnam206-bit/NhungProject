@@ -20,7 +20,8 @@
 | Gate | Result | Limit |
 |---|---|---|
 | Host C11 runtime, snapshot, START, GOAL, motion health | PASS | Synthetic fixtures; no physical pose or sensor validation |
-| Python course/calibration tests | PASS, 10 tests | Nominal geometry only |
+| Python course/calibration/Flash-inspection tests | PASS, 13 tests | Offline inputs only |
+| PowerShell Flash-backup mock | PASS | Verifies two reads, paths with spaces, metadata logs and absence of reset/resume/write commands; no PCB contact |
 | ARM `hybrid_planner_check`, `hybrid_planner_check_128k`, `hybrid_v1_staging` and ELF checker | PASS | Locked images, no Flash write |
 | Flash image span | 74,944 / 130,048 B | ELF load span; PlatformIO reports 74,632 B sections |
 | SRAM | 14,848 B static; 16,384 / 20,480 B including linker reserve | 4,096 B spare is not measured stack high-water |
@@ -29,6 +30,8 @@
 ## Priorities and blockers
 
 - **P0:** Upper 64 KiB Flash write, alias and power-cycle retention are unverified. Keep 64 KiB fallback. A locked 128 KiB image must not be uploaded until Flash acceptance.
+- A legacy local 128 KiB backup has non-`FF` data in the final page (`0x0801FC00`); provenance is unconfirmed. The final page is **not** an available test page by assumption. See `docs/FLASH_128K_ACCEPTANCE.md`.
+- The read-only backup script now records size-register and UID logs without reset/resume, and the offline inspector reports per-page occupancy and hashes. These tools still require a fresh board readback before any write test.
 - **P0:** START and GOAL surveyed coordinates, sensor mounts/FOV, ground wheel calibration, brake distance, planner timing/stack and PB0 lease on the PCB are missing. START_ENTRY/GOAL_EXIT motion constants intentionally remain zero.
 - **P1:** Four possible random-obstacle positions are unknown (`NEEDS_MEASUREMENT`). Dynamic mapping is available, but traversability of all four cases is unproven.
 - The four case IDs are recorded in `tests/fixtures/random_obstacle_cases.json` with null coordinates. They cannot be treated as official positions by a test or runtime.
