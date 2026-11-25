@@ -12,7 +12,7 @@ static PlannerGoalExitMotionConfig fixture() {
   m.corridor.exit_ymin_cm = -25;
   m.corridor.half_length_cm = 6.5f;
   m.corridor.half_width_cm = 5;
-  m.corridor.heading_tolerance_rad = 0.1f;
+  m.corridor.heading_tolerance_rad = 0.02f;
   m.corridor.terminal_center_y_cm = -10;
   m.corridor.brake_overrun_cm = 2;
   m.speed_cm_s = 8;
@@ -42,6 +42,10 @@ int main() {
       {60, 0, 60, 60}, {140, 10, 10, 10}, {170, 20, 10, 10}};
   assert(PlannerGoalExitMotion_PathClear(m, 162.5f, 12.5f, 3.14159265f,
                                          blocks, 3, 1.5f));
+  m.corridor.heading_tolerance_rad = 0.1f;
+  assert(!PlannerGoalExitMotion_PathClear(m, 162.5f, 12.5f, 3.14159265f,
+                                          blocks, 3, 1.5f));
+  m = fixture();
   const PlannerGoalExitRect moving[] = {{159, -5, 6, 6}};
   assert(!PlannerGoalExitMotion_PathClear(m, 162.5f, 8, 3.14159265f,
                                           moving, 1, 4.3f));

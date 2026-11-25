@@ -17,6 +17,7 @@
 - The ARM ELF checker now rejects linker heap reserve below 512 B, stack reserve below 1024 B, or a changed static/RAM layout. It reports exact RAM bounds for the PCB stack test without claiming a measured high-water mark.
 - Added a successful stopped-replan host case on a synthetic free-space map: a confirmed front hit blocks the original route, preview/route access are revoked while moving, and the replacement route excludes the occupied cell after stopped confirmation. The existing 17-block case still verifies safe no-path exhaustion.
 - Four explicitly synthetic obstacle rectangles now stress the nominal C11 footprint planner. One case retains a safe route; three return `PLANNER_NO_PATH` and must stop. They are not the four unknown official positions; no safety margin or obstacle is removed to force a route.
+- START_ENTRY and GOAL_EXIT swept-corridor checks now include the maximum lateral drift allowed by heading tolerance over the remaining straight travel, plus rotated body extent. The nominal narrow GOAL corridor rejects a synthetic 0.1 rad tolerance; smaller synthetic tolerances can pass. Physical heading stability and straightness remain `NEEDS_MEASUREMENT`.
 - Qualification stays `HYBRID_MOTOR_LOCK=1`, `HYBRID_PLANNER_INPUTS_VERIFIED=0`; default environment stays `hybrid_2laps`.
 - `hybrid_v1_staging` is a separate build target inheriting the locked 128 KiB gates and ELF checks. It has no operating authorization; a later reviewed change must supply physical evidence before any unlock.
 
@@ -26,9 +27,10 @@
 |---|---|---|
 | Host C11 runtime, snapshot, START, GOAL, motion health | PASS | Synthetic fixtures; no physical pose or sensor validation |
 | Python course/calibration/Flash-inspection tests | PASS, 13 tests | Offline inputs only |
+| Core repository `pc_sim` unit tests | PASS, 7 tests | Legacy Python simulation, separate from locked firmware |
 | PowerShell Flash-backup mock | PASS | Verifies two reads, paths with spaces, metadata logs and absence of reset/resume/write commands; no PCB contact |
 | ARM `hybrid_planner_check`, `hybrid_planner_check_128k`, `hybrid_v1_staging` and ELF checker | PASS | Locked images, no Flash write |
-| Flash image span | 75,344 / 130,048 B | ELF load span; PlatformIO reports 75,032 B sections |
+| Flash image span | 76,280 / 130,048 B | ELF load span; PlatformIO reports 75,968 B sections |
 | SRAM | 14,848 B static; 16,384 / 20,480 B including linker reserve | 4,096 B spare is not measured stack high-water |
 | Hardware, upper Flash write/retention, motor motion | NOT TESTED | Requires physical acceptance |
 

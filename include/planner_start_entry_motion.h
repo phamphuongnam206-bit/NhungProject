@@ -37,13 +37,21 @@ inline bool PlannerStartEntryMotion_PathClear(
     float margin_cm) {
   if (!PlannerStartEntryMotion_ConfigReady(c) || !isfinite(x_cm) ||
       !isfinite(y_cm) || !isfinite(yaw_rad) || !isfinite(margin_cm) ||
-      margin_cm < 0 || (count && !obstacles)) return false;
-  const float s = fabsf(sinf(yaw_rad)), co = fabsf(cosf(yaw_rad));
-  const float ex = c.half_length_cm * s + c.half_width_cm * co;
-  const float ey = c.half_length_cm * co + c.half_width_cm * s;
-  const float left = x_cm - ex, right = x_cm + ex;
+      margin_cm < 0 || (count && !obstacles) ||
+      fabsf(remainderf(yaw_rad, 6.28318530718f)) >
+          c.heading_tolerance_rad) return false;
+  // Straight motion can drift laterally throughout the remaining travel.
+  // Bound the entire footprint for any heading inside the approved tolerance.
+  const float max_y = c.terminal_center_y_cm + c.brake_overrun_cm;
+  const float drift = fmaxf(0.0f, max_y - y_cm) *
+                      tanf(c.heading_tolerance_rad);
+  const float s = sinf(c.heading_tolerance_rad);
+  const float ex = c.half_width_cm + c.half_length_cm * s;
+  const float ey = c.half_length_cm + c.half_width_cm * s;
+  if (!isfinite(drift)) return false;
+  const float left = x_cm - ex - drift, right = x_cm + ex + drift;
   const float bottom = y_cm - ey;
-  const float top = c.terminal_center_y_cm + c.brake_overrun_cm + ey;
+  const float top = max_y + ey;
   if (left <= c.gate_xmin_cm || right >= c.gate_xmax_cm ||
       bottom < c.outside_ymin_cm || top < bottom) return false;
   for (size_t i = 0; i < count; ++i) {

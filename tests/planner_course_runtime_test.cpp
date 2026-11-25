@@ -110,7 +110,7 @@ int main() {
   entry.gate_xmin_cm = 0; entry.gate_xmax_cm = 60;
   entry.line_y_cm = 0; entry.outside_ymin_cm = -20;
   entry.half_length_cm = 6.5f; entry.half_width_cm = 5;
-  entry.heading_tolerance_rad = .1f;
+  entry.heading_tolerance_rad = .005f;
   entry.terminal_center_y_cm = 52.5f; entry.brake_overrun_cm = 2;
   entry.speed_cm_s = 8; entry.progress_epsilon_cm = .2f;
   entry.timeout_ms = 10000; entry.stall_ms = 800;
@@ -175,7 +175,7 @@ int main() {
   exit.corridor.gate_xmin_cm = 120; exit.corridor.gate_xmax_cm = 180;
   exit.corridor.line_y_cm = 0; exit.corridor.exit_ymin_cm = -25;
   exit.corridor.half_length_cm = 6.5f; exit.corridor.half_width_cm = 5;
-  exit.corridor.heading_tolerance_rad = .1f;
+  exit.corridor.heading_tolerance_rad = .02f;
   exit.corridor.terminal_center_y_cm = -10;
   exit.corridor.brake_overrun_cm = 2;
   exit.speed_cm_s = 8; exit.timeout_ms = 6000;

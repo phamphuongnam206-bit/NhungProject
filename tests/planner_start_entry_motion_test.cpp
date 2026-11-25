@@ -21,6 +21,11 @@ int main() {
   PlannerStartEntryMotion state{};
   const PlannerGoalExitRect forbidden[] = {{60, 0, 60, 60}};
   assert(PlannerStartEntryMotion_PathClear(c, 30, -7, 0, forbidden, 1, 1.5f));
+  const PlannerGoalExitRect narrow[] = {{38, 0, 10, 10}};
+  assert(!PlannerStartEntryMotion_PathClear(c, 30, -7, 0, narrow, 1, 1.5f));
+  c.heading_tolerance_rad = 0.005f;
+  assert(PlannerStartEntryMotion_PathClear(c, 30, -7, 0, narrow, 1, 1.5f));
+  c = fixture();
   assert(!PlannerStartEntryMotion_PathClear(c, 56, -7, 0, forbidden, 1, 1.5f));
   const PlannerGoalExitRect dynamic[] = {{27, 5, 6, 6}};
   assert(!PlannerStartEntryMotion_PathClear(c, 30, -7, 0, dynamic, 1, 4.3f));

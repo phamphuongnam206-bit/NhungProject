@@ -106,6 +106,14 @@ block face is 7.5 cm from the tested centerline. The remaining lateral
 clearance is `7.5 - 10/2 - 1.5 = 1.0 cm` on that side. For a centered
 15 cm gap, this same calculation applies to both sides. This uses the
 nominal diagram and user-provided dimensions, not a surveyed safety margin.
+The START/GOAL swept-corridor checks now also bound lateral drift over the
+remaining straight travel as `distance * tan(heading_tolerance)` and enlarge
+the footprint for the allowed heading error. In the synthetic end-to-end
+fixture, a 0.005 rad START tolerance and 0.02 rad GOAL tolerance fit the
+nominal corridors; 0.1 rad can reach T17 during GOAL_EXIT and is rejected.
+These tolerances are **test inputs**, not measured vehicle capability or
+approved operating settings. If physical yaw error exceeds a measured safe
+tolerance, the straight boundary controllers must remain disabled.
 START_ENTRY and GOAL_EXIT still need a measured path and starting pose before
 motion is authorized.
 

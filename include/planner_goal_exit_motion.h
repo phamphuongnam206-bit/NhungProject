@@ -52,11 +52,18 @@ inline bool PlannerGoalExitMotion_PathClear(
   if (!PlannerGoalExitMotion_ConfigReady(m) || !isfinite(x_cm) ||
       !isfinite(y_cm) || !isfinite(yaw_rad) || !isfinite(margin_cm) ||
       margin_cm < 0 || (count && !obstacles)) return false;
-  const float s = fabsf(sinf(yaw_rad)), co = fabsf(cosf(yaw_rad));
-  const float ex = c.half_length_cm * s + c.half_width_cm * co;
-  const float ey = c.half_length_cm * co + c.half_width_cm * s;
-  const float left = x_cm - ex, right = x_cm + ex;
+  if (fabsf(remainderf(yaw_rad - 3.14159265359f,
+                       6.28318530718f)) > c.heading_tolerance_rad)
+    return false;
+  const float s = sinf(c.heading_tolerance_rad);
+  const float ex = c.half_width_cm + c.half_length_cm * s;
+  const float ey = c.half_length_cm + c.half_width_cm * s;
   const float bottom = c.terminal_center_y_cm - c.brake_overrun_cm - ey;
+  const float drift = fmaxf(0.0f, y_cm -
+      (c.terminal_center_y_cm - c.brake_overrun_cm)) *
+      tanf(c.heading_tolerance_rad);
+  if (!isfinite(drift)) return false;
+  const float left = x_cm - ex - drift, right = x_cm + ex + drift;
   const float top = y_cm + ey;
   if (left <= c.gate_xmin_cm || right >= c.gate_xmax_cm ||
       bottom < c.exit_ymin_cm || top < bottom) return false;

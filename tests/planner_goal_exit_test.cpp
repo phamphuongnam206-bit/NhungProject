@@ -9,7 +9,7 @@ int main() {
   c.line_y_cm = 0; c.exit_ymin_cm = -25;
   c.half_length_cm = 6.5f; c.half_width_cm = 5.0f;
   c.obstacle_margin_cm = 1.5f;
-  c.heading_tolerance_rad = 0.1f;
+  c.heading_tolerance_rad = 0.02f;
   c.terminal_center_y_cm = -10;
   c.brake_overrun_cm = 2; // Test fixture, not an operational calibration.
   const PlannerGoalExitRect fixed[] = {
@@ -28,6 +28,10 @@ int main() {
   c.verified = true;
   assert(clear(true, true, true, true, 162.5f, 12.5f, 3.14159265f,
                fixed, 3));
+  c.heading_tolerance_rad = 0.1f;
+  assert(!clear(true, true, true, true, 162.5f, 12.5f, 3.14159265f,
+                fixed, 3)); // Allowed yaw drift can reach T17 before exit.
+  c.heading_tolerance_rad = 0.02f;
   assert(!clear(false, true, true, true, 162.5f, 12.5f, 3.14159265f,
                 fixed, 3));
   assert(!clear(true, false, true, true, 162.5f, 12.5f, 3.14159265f,
