@@ -16,9 +16,11 @@ Core dùng các pose này để chiếu từng hit vào runtime map; không dùn
 nhất để chiếu lại range cũ. Nếu thiếu origin hoặc có giá trị không hữu hạn,
 snapshot bị từ chối và runtime phải dừng.
 
-Hybrid lưu origin tại thời điểm từng VL53 hoàn tất phép đo và chuyển chúng qua
-snapshot vào `SensorMap_UpdateTimed`. Đây là cập nhật occupancy động có kiểm
-soát; bản đồ sân, pose xuất phát và calibration thật vẫn chưa được xác nhận.
+Hybrid không biết chính xác thời điểm exposure của VL53. Chỉ khi pose được lấy
+mẫu liên tục và ổn định trong 100 ms trước lúc đọc, cả bốn origin mới được
+chuyển qua snapshot vào `SensorMap_UpdateTimed`. Khi xe chuyển động, mapping
+động vẫn bị khóa; xem `STATIONARY_VL53_MAPPING.md`. Bản đồ sân, pose xuất phát
+và calibration thật vẫn chưa được xác nhận.
 Tốc độ đã quy đổi và các cờ valid là trách nhiệm của caller/driver.
 
 Host test PASS: chuyển trục, mẫu cũ nhất, skew, mất xác nhận pose, NaN/null,
