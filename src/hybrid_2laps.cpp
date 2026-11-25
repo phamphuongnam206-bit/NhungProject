@@ -1039,6 +1039,9 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE && plannerStatus != ONE_RUN_STOPPED) {
     PlannerRuntime_Invalidate();
     plannerRuntimeReady = false;
+    // A planner fault is terminal for this run. Invalidation alone would let
+    // the next control tick call Begin again and silently restart the mission.
+    halt("PLANNER_FAULT", Fault::CONTROL);
   }
 }
 #endif
