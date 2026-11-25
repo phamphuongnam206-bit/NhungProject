@@ -630,6 +630,7 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
   if (plannerStatus == ONE_RUN_COMPLETE) plannerGoalReached = true;
   if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE) {
+    PlannerRuntime_Invalidate();
     plannerRuntimeReady = false;
   }
 }
@@ -1192,6 +1193,7 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     return;
   }
+  if (plannerStatus != ONE_RUN_OK) plan = {};
 #endif
   if (now - lastPlanMs >= 30) {
     lastPlanMs = now;
