@@ -11,7 +11,7 @@ MPU, bốn VL53 và kiểm tra cung chuyển động. Không gộp các main l�
   `HYBRID_MOTOR_LOCK=1`: cả PWM bằng 0, STBY PB0 LOW, kể cả khi yêu cầu phanh.
   Mức chân trước khi `setup()` chạy vẫn phụ thuộc phần cứng/reset.
 - Core planner C11 lấy bằng Git dependency ghim commit
-  `1f89aed98590481ba0bb21d4efc6832d7b4d42d8` từ `haiddt0330/xe_tranh_vat_can`.
+  `b84415d0a9852af61aaa08e3de1e380fe99b98d5` từ `haiddt0330/xe_tranh_vat_can`.
   Manifest chỉ chọn các module toán, không lấy main/startup/HAL/driver của repo đó.
   Firmware nền vẫn là STM32duino C++; đây không phải bản chuyển toàn bộ sang C11.
 - Linker buộc giữ adapter, planner và vùng nhớ mission/config/input/output static.
@@ -28,10 +28,10 @@ Lệnh: `platformio run -e hybrid_2laps -e map_one_run` và
 |---|---|---:|---:|
 | hybrid_2laps (build lại sau thay đổi) | PASS | 50.012 B | 2.628 B |
 | map_one_run (không đổi nguồn) | PASS | 38.740 B | 3.044 B |
-| hybrid_planner_check | PASS | 62.232 B | 14.452 B |
+| hybrid_planner_check (forward guard) | PASS | 62.636 B | 14.452 B |
 
 Kiểm tra ELF đầy đủ tính cả vector, bảng khởi tạo, ảnh nạp `.data` và khoảng
-căn hàng: **62.552/64.512 B Flash**, còn **1.960 B**. RAM gồm vùng linker
+căn hàng: **62.956/64.512 B Flash**, còn **1.556 B**. RAM gồm vùng linker
 dự phòng là **15.992/20.480 B**, còn **4.488 B** ngoài vùng đó. Storage của
 mission và các cấu trúc đi kèm là **11.824 B**. Đây chưa phải đo stack lúc chạy.
 Không được chỉ dùng số phần trăm ở dòng PlatformIO để kết luận còn đủ dung lượng.
@@ -54,7 +54,12 @@ Build còn warning `boolean` deprecated từ thư viện VL53L0X, không có l�
 
 Core C11: test mới tái hiện lỗi bỏ sót đoạn hiện tại khi lookahead đã qua góc cua.
 Sau sửa, follower/controller/mission tests PASS; ARM build và forced link PASS
-(text 29.092, data 96, bss 13.816 B ở repo core, không phải số firmware hybrid).
+(text 29.536, data 96, bss 13.816 B ở repo core, không phải số firmware hybrid).
+
+Bản core mới còn chặn yêu cầu quay/lùi chưa có kiểm tra vùng quan sát: controller
+chỉ cho cung tiến có cả hai bánh dương, lỗi xóa lệnh và quyền chuyển động. Đã test
+361 góc ban đầu, NaN/overflow và mission dừng/phục hồi; 5 nhóm test liên quan PASS.
+Toàn bộ giá trị test là giả lập, không thay hệ số cơ khí trên xe.
 
 ## Debug và bước tiếp
 
@@ -71,7 +76,7 @@ I2C2 PB10/PB11 VL53, XSHUT PA2–PA5, UART PA9/PA10.
 Trước khi cho planner điều khiển: chuyển hệ trục yaw hybrid (0 tại +Y, dương
 quay phải) sang core (0 tại +X, dương quay trái); ghép timestamp/pose từng VL53;
 đưa localization và kiểm tra cung vào đường lệnh; xác nhận hiệu chuẩn và đo
-thời gian thực thi/stack. Flash còn 1.960 B nên phải kiểm tra lại mỗi lần ghép.
+thời gian thực thi/stack. Flash còn 1.556 B nên phải kiểm tra lại mỗi lần ghép.
 PR #6 startup/safety đã được đọc; mô hình raycast của bản đó còn coi biên sân
 là tường, không được dùng nguyên trạng cho sân chỉ có vạch dưới sàn.
 Hybrid hiện chỉ đọc cờ reset IWDG/WWDG, chưa khởi tạo watchdog. Hai vấn đề này
