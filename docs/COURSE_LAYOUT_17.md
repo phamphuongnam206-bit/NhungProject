@@ -75,6 +75,14 @@ proves only that the interior course segment has a valid nominal path. The
 full START_ENTRY from behind the line and GOAL_EXIT beyond it remain untested;
 motor lock stays on. Do not remove footprint checks to force a direct route.
 
+`tests/planner_course_runtime_test.cpp` exercises the real snapshot adapter,
+17-block map and C11 mission on one synthetic J9 hit near x≈40, y≈77.
+That hit closes the narrow first corridor; the runtime stops, keeps preview
+motion disabled and faults after two unsuccessful replans. This scenario does
+not identify any of the four unknown random-obstacle locations. A dynamic
+obstacle can make the nominal course unsolvable, so V1 must retain its safe
+stop when no alternate path exists.
+
 The apparent straight corridors have almost no surveyed tolerance. At
 X=42.5 cm through T2/T3/T4 and X=162.5 cm beside T17, the nearest nominal
 block face is 7.5 cm from the tested centerline. The remaining lateral

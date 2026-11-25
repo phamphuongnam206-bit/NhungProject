@@ -107,6 +107,15 @@ fixture's distances and pose are synthetic source/build checks only.
   The PB1
   start-button software gate now requires release then press, but has no
   physical PCB test; see `COURSE_LAYOUT_17.md`.
+- A host integration test now feeds the actual 17-block fixture through
+  `PlannerSnapshot_Build` and the real C11 runtime. From the interior fixture
+  (42.5,52.5), it plans four waypoints to the interior GOAL approach. A
+  synthetic timed 20 cm front VL53 hit on the narrow first corridor is mapped
+  after two confirmations. The mission stops, revokes preview permission,
+  attempts two replans, finds no safe alternate and latches
+  `ONE_RUN_REPLAN_EXHAUSTED`. This is a PASS for safe stopping, **not** proof
+  that the unknown random-obstacle positions are traversable or that the
+  physical sensors detect them reliably.
 
 `NEEDS_MEASUREMENT`: START position/bounds and angle, four sensor mount/FOV
 angles, surveyed obstacle positions and random-obstacle test, GOAL zone and
