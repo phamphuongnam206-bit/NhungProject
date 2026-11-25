@@ -3,6 +3,9 @@ from pathlib import Path
 import sys
 
 Import("env")
+# Only project sources carry LTO; framework/libraries keep their normal build.
+# Do not silently accept cross-translation-unit type disagreements.
+env.Append(LINKFLAGS=["-flto", "-Werror=odr", "-Werror=lto-type-mismatch"])
 sys.path.insert(0, str(Path(env.subst("$PROJECT_DIR")) / "tools"))
 from check_planner_elf import check
 
