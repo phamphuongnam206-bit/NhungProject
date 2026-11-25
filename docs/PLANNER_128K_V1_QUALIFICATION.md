@@ -30,9 +30,12 @@ destructive retention test.
 | `hybrid_planner_check_128k` | PASS | 66964 / 130048 B | 14844 B | 16384 / 20480 B |
 
 Host regression passes for the real C11 planner runtime, timed four-sensor
-snapshot, START adapter, route deviation, no progress, wheel stall, rotational
-wheel/gyro disagreement, and GOAL gate. Course geometry agreement and both
-motor-lock variants also pass host tests. These are source/build checks only.
+snapshot, and all four ranges reaching the runtime map. The fixture places
+left/right hits on the matching sides and a new front hit on the route;
+the latter requests a stopped replan. START adapter, route deviation, no
+progress, wheel stall, rotational wheel/gyro disagreement, GOAL gate, course
+geometry agreement and both motor-lock variants also pass host tests. The
+fixture's distances and pose are synthetic source/build checks only.
 
 ## Safety gates and missing measurements
 

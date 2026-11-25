@@ -35,6 +35,15 @@ with tempfile.TemporaryDirectory(prefix='nhung_runtime_') as folder:
                     str(root/'src/planner_snapshot.cpp'), *objects,
                     '-o', str(snapshot)], check=True)
     subprocess.run([str(snapshot)], check=True)
+    four = Path(folder) / 'four_sensor_runtime.exe'
+    subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-DHYBRID_MOTOR_LOCK=1', '-I' + str(root/'include'),
+                    '-I' + str(a.core/'Core/Inc'),
+                    str(root/'tests/planner_four_sensor_runtime_test.cpp'),
+                    str(root/'src/planner_snapshot.cpp'),
+                    str(root/'src/one_run_link_probe.cpp'), *objects,
+                    '-o', str(four)], check=True)
+    subprocess.run([str(four)], check=True)
     start = Path(folder) / 'start_localization.exe'
     subprocess.run([a.zig, 'cc', '-std=c++11', '-Wall', '-Wextra', '-Werror',
                     '-I' + str(root/'include'), '-I' + str(a.core/'Core/Inc'),
