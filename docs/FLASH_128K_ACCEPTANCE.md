@@ -1,6 +1,6 @@
 # 128 KiB Flash acceptance, physical gate
 
-OpenOCD reported size register `0x80` and could read `0x08010000` and `0x0801FFF0`. That is **read evidence only**. The current 128 KiB image has a 74,924-byte load span, so its bytes extend above 64 KiB. Do not upload it before this gate.
+OpenOCD reported size register `0x80` and could read `0x08010000` and `0x0801FFF0`. That is **read evidence only**. The current 128 KiB image has a 76,448-byte load span (see `docs/V1_AUTONOMOUS_PROGRESS.md`), so its bytes extend above 64 KiB. Recheck the span after later builds. Do not upload it before this gate.
 
 ## 1. Backup without Flash writes
 
