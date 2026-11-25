@@ -50,6 +50,8 @@ envelope. The user also reports a 15 cm gap between adjacent blocks, without
 identifying the particular pair. The 15 x 10 cm rule applies to the physical
 body: the reported 11.3 cm width exceeds its 10 cm limit by 1.3 cm. Software
 cannot resolve that competition-size conflict.
+The user instructed qualification to continue with 11.3 cm and the reported
+15 cm gap; this does not change the stated rule or the motor lock.
 
 ## Software qualification
 
@@ -75,6 +77,15 @@ clearance is `7.5 - 11.3/2 - 1.5 = 0.35 cm` on that side. For a centered
 nominal diagram and user-provided dimensions, not a surveyed safety margin. A small
 position or width error can erase it. START_ENTRY and GOAL_EXIT therefore
 still need a measured path and body dimensions before motion is authorized.
+
+`python -m unittest discover -s tests -p 'test_course_*.py' -v` also checks
+straight, axis-aligned START and GOAL gate sweeps against all 17 nominal
+blocks and the forbidden zone. The 11.3 cm envelope fits the **nominal**
+centerlines at X=42.5 and X=162.5 with 0.35 cm lateral remainder. Shifting
+either path 0.4 cm toward its nearest block, or inserting a small dynamic
+block, makes the test reject that passage. This is a host geometry test only:
+it does not establish pose, heading, VL53 freshness, braking distance, or
+physical block placement, and does not activate START_ENTRY or GOAL_EXIT.
 
 `pc_sim/mapping.py` is a legacy 13-block simulation with guessed random
 locations; it is not the V1 course source. The JSON fixture above records the
