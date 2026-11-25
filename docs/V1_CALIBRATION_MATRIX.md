@@ -10,12 +10,12 @@ States: `VERIFIED` means the value has evidence for this assembled robot and the
 | Effective wheel track | Reported 9 cm center spacing is not effective turning track | NEEDS_MEASUREMENT | Ground turning calibration |
 | Body length/width | User-confirmed assembled 13 × 10 cm; recorded as verified in central calibration header | VERIFIED | Recheck protrusions before physical clearance acceptance |
 | Gyro sign | MPU yaw manual log exists; firmware sign needs matching mount and axis review | NEEDS_REVIEW | Match signed physical rotation to firmware yaw |
-| Gyro bias/drift | Core `mpu6050_bias_1000dps.json` records raw bias ≈ -3.698 for a prior test | NEEDS_REVIEW | Confirm same sensor/range/temp and unit conversion; measure drift on PCB |
+| Gyro bias/drift | Core `mpu6050_bias_1000dps.json` records raw bias ≈ -3.698 with `0x1B=0x10` (1000 dps); hybrid uses `0x1B=0x08` (500 dps) and a fresh 50-sample boot bias | CONFLICTING | Do not copy raw bias between configurations; confirm current PCB range/readback and measure drift |
 | Lowest stable speed / safe maximum speed | Hardcoded control limits are design settings | NEEDS_MEASUREMENT | Controlled floor test |
 | Braking distance | No ground stopping measurement | NEEDS_MEASUREMENT | Distance at approved speed and supply range |
 | Acceleration/deceleration | Compiled deceleration 35 cm/s² is unverified | NEEDS_MEASUREMENT | Timed floor run and stop |
 | Stall, route deviation, no-progress thresholds | Source contains limits and host fault tests | NEEDS_REVIEW | Compare with measured noise, traction and loop timing |
-| Four VL53 positions/angles and FOV | Nominal J8..J11 mounts in source/host fixture | NEEDS_MEASUREMENT | Measure each origin, pointing sign and response cone |
+| Four VL53 positions/angles and FOV | Core `vl53_four_range_20261124.json` confirms J8..J11 communication/ranging at addresses 0x30..0x33, but not mount geometry or distance accuracy; nominal mounts are in source/host fixture | NEEDS_MEASUREMENT | Measure each origin, pointing sign, response cone and range error; do not repeat address bring-up without a new fault |
 | PB1 active level | Firmware uses pull-up, active LOW, release then press; PCB test missing | NEEDS_REVIEW | Logic-level and held-at-boot test |
 | START pose/region | Outside y=0, +Y expected; survey bounds and yaw tolerance absent | NEEDS_MEASUREMENT | Measure placement and repeatability |
 | GOAL corridor/finish | Gate x=120..180 at y=0, -Y expected; full-body crossing required in source | NEEDS_REVIEW | Confirm competition rule, corridor and stopping envelope |

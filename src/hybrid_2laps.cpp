@@ -549,6 +549,16 @@ bool writeMpuReg(uint8_t r, uint8_t v) {
   return Wire.endTransmission() == 0;
 }
 
+bool readMpuReg(uint8_t r, uint8_t &value) {
+  Wire.beginTransmission(MPU_ADDR); Wire.write(r);
+  if (Wire.endTransmission(false) != 0 ||
+      Wire.requestFrom(MPU_ADDR, (uint8_t)1) != 1) return false;
+  const int result = Wire.read();
+  if (result < 0) return false;
+  value = uint8_t(result);
+  return true;
+}
+
 bool readGyroRawZ(int16_t &rawZ) {
   Wire.beginTransmission(MPU_ADDR); Wire.write(0x47);
   if (Wire.endTransmission(false) != 0) return false;
@@ -563,6 +573,10 @@ bool initGyro() {
   Wire.setSDA(PB7); Wire.setSCL(PB6); Wire.begin(); Wire.setClock(100000);
   if (!writeMpuReg(0x6B, 0x01) || !writeMpuReg(0x1A, 0x03) ||
       !writeMpuReg(0x19, 0x09) || !writeMpuReg(0x1B, 0x08)) return false;
+  uint8_t filter = 0, sampleRate = 0, gyroRange = 0;
+  if (!readMpuReg(0x1A, filter) || filter != 0x03 ||
+      !readMpuReg(0x19, sampleRate) || sampleRate != 0x09 ||
+      !readMpuReg(0x1B, gyroRange) || gyroRange != 0x08) return false;
   delay(60);
   int32_t sum = 0;
   for (int i = 0; i < 50; ++i) {
