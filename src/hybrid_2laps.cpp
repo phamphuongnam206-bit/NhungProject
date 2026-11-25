@@ -118,12 +118,35 @@ constexpr Point ROUTE[] = {
 constexpr uint8_t ROUTE_COUNT = sizeof(ROUTE) / sizeof(ROUTE[0]);
 
 struct Box { float x, y, hx, hy; };
+#if HYBRID_PLANNER_ROUTE
 constexpr Box MAP_BOXES[] = {
-  {90, 30, 30, 30},  // o cam di tat
+  {90,30,30,30}, // forbidden [60,0,60,60]
+  {5,15,5,5}, // T1
+  {55,25,5,5}, // T2
+  {30,35,5,5}, // T3
+  {55,45,5,5}, // T4
+  {5,55,5,5}, // T5
+  {5,75,5,5}, // T6
+  {35,85,5,5}, // T7
+  {45,115,5,5}, // T8
+  {65,75,5,5}, // T9
+  {75,65,5,5}, // T10
+  {85,100,5,5}, // T11
+  {95,65,5,5}, // T12
+  {115,115,5,5}, // T13
+  {125,85,5,5}, // T14
+  {145,45,5,5}, // T15
+  {145,15,5,5}, // T16
+  {175,25,5,5}, // T17
+};
+#else
+constexpr Box MAP_BOXES[] = {
+  {90, 30, 30, 30},  // original hybrid layout
   {10,20,5,5}, {55,30,5,5}, {25,50,5,5}, {55,50,5,5},
   {10,65,5,5}, {10,85,5,5}, {30,95,5,5}, {40,110,5,5},
-  {65,75,5,5}, {75,70,5,5}, {90,100,5,5}, {95,70,5,5}, {115,110,5,5},
+  {65,75,5,5}, {75,70,5,5}, {90,100,5,5}, {115,110,5,5},
 };
+#endif
 
 // J8, J9, J10, J11. Vi tri tinh tu tam xe, right > 0 ben phai.
 // J9/J10 dat lui 1.5 cm so voi mep dau xe, nen goc do bat dau o forward=4.5.
@@ -604,9 +627,25 @@ void fillPlannerConfig(OneRunConfig &config) {
 }
 
 bool beginPlannerRuntime() {
-  // A shared surveyed course map/config provider is still required.
-  // Do not substitute the boundary-only MapGrid_InitBase fixture.
-  return false;
+  if (!plannerMapVerified || !plannerPoseVerified) return false;
+  MapGrid baseMap{};
+  OneRunConfig config{};
+  if (MapGrid_InitBase(&baseMap) != MAP_GRID_OK) return false;
+  // Rectangles share the same MAP_BOXES geometry used by local arc checks.
+  // All listed coordinates are multiples of the 5 cm planner cell size.
+  for (const Box &box : MAP_BOXES) {
+    const float x0 = box.x - box.hx, y0 = box.y - box.hy;
+    const float w = 2.0f * box.hx, h = 2.0f * box.hy;
+    const MapCell kind = (&box == &MAP_BOXES[0]) ? MAP_CELL_FORBIDDEN : MAP_CELL_OBSTACLE;
+    if (MapGrid_SetRectangle(&baseMap, uint8_t(y0 / MAP_GRID_CELL_CM),
+        uint8_t(x0 / MAP_GRID_CELL_CM), uint8_t(h / MAP_GRID_CELL_CM),
+        uint8_t(w / MAP_GRID_CELL_CM), kind) != MAP_GRID_OK) return false;
+  }
+  fillPlannerConfig(config);
+  if (!PlannerRuntime_Begin(&baseMap, &config, true, wheelsSettled())) return false;
+  plannerLastPollMs = millis() - 30U;
+  plannerRuntimeReady = true;
+  return true;
 }
 
 void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
