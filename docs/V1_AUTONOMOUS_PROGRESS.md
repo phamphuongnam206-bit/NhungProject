@@ -2,7 +2,7 @@
 
 ## Repositories and scope
 
-- Firmware: `codex/planner-128k-v1-20261125`, baseline `6789e5b` (working tree was clean before this work).
+- Firmware HEAD: `refs/heads/codex/planner-128k-v1-20261125` (resolve its current commit with `git rev-parse HEAD`); starting baseline `6789e5b` (working tree was clean before this work). The follow-up commits are `9b811ba`, `fbb3d69` and `3a93f0d`.
 - C11 core: `codex/course-reflectors-20261125`, `2454ca8be28c8fedff0204a62e339cdd162d5427` (clean, unchanged).
 - The IDE's `CUOI_KY/NhungProject-main` is an older non-Git copy. All edits are in `D:/prj_Nhung/NhungProject_one_run`.
 - Existing firmware PR: #15. Do not merge to main or change the pinned core without a separate review.
