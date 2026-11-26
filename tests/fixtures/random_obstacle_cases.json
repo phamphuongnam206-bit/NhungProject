@@ -1,0 +1,10 @@
+{
+  "status": "NEEDS_MEASUREMENT",
+  "coordinate_system": "cm, origin lower left, +X right, +Y up",
+  "cases": [
+    {"id": 1, "center_x_cm": null, "center_y_cm": null},
+    {"id": 2, "center_x_cm": null, "center_y_cm": null},
+    {"id": 3, "center_x_cm": null, "center_y_cm": null},
+    {"id": 4, "center_x_cm": null, "center_y_cm": null}
+  ]
+}

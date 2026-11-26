@@ -24,7 +24,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cxx", nargs="+", default=["g++"])
     args = parser.parse_args()
-    source = (Path(__file__).resolve().parents[1] / "src/hybrid_2laps.cpp").read_text()
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "src/hybrid_2laps.cpp").read_text()
     lease_functions = "\n".join(function(source, signature) for signature in (
         'extern "C" void osSystickHandler(void)',
         "void armMotorLease(uint8_t mode)",
@@ -32,10 +33,13 @@ def main():
     motor_functions = "\n".join(function(source, signature) for signature in (
         "void stopMotors(bool brake = false)",
         "void driveWheels(float leftCmS, float rightCmS, float dt)",
+        "float measuredForwardSpeed()",
+        "void updatePose(int32_t l, int32_t r)",
     ))
     harness = r'''
 #include <assert.h>
 #include <stdint.h>
+#include "map_one_run_calibration.h"
 enum PinStatus {LOW=0, HIGH=1};
 enum {STBY_PIN, LEFT_PWM, RIGHT_PWM, LEFT_IN1, LEFT_IN2, RIGHT_IN1, RIGHT_IN2};
 int levels[7], pwm[7], highStandbyCalls, nonzeroPwmCalls;
@@ -49,10 +53,16 @@ void analogWrite(int pin, int value) {
 }
 struct Wheel {
     int resetCount = 0, driveCount = 0;
+    float cps = 0, targetCps = 0;
     void reset() { ++resetCount; }
-    int drive(float, float, float) { ++driveCount; return 80; }
+    int drive(float target, float, float) { targetCps = target; ++driveCount; return 80; }
 } wheelL, wheelR;
-float MAP_COUNTS_CM_L=45, MAP_COUNTS_CM_R=45;
+constexpr float MAP_COUNTS_CM_L = MapOneRunCalibration::leftCountsPerCm;
+constexpr float MAP_COUNTS_CM_R = MapOneRunCalibration::rightCountsPerCm;
+constexpr float YAW_SIGN = MapOneRunCalibration::hybridYawSign;
+constexpr float RAD = 0.01745329252f;
+float currentYawDeg = 0;
+struct Pose { struct { float x, y; } p; float yaw; } pose{};
 float commandedSpeed = 10, lastCurve = 1;
 uint32_t tickMs = 0;
 uint32_t HAL_GetTick() { return tickMs; }
@@ -74,6 +84,14 @@ bool brakeEpisodeActive = false;
 #endif
 ''' + motor_functions + r'''
 int main() {
+    // The expected speeds and distance differ if one scale is used for both wheels.
+    wheelL.cps = 566.6f; wheelR.cps = 512.4f;
+    assert(fabsf(measuredForwardSpeed() - 10.0f) < 0.01f);
+    updatePose(1700, 1537);
+    assert(fabsf(pose.p.y - 30.0f) < 0.02f && pose.p.x == 0.0f);
+    currentYawDeg = 90.0f;
+    updatePose(0, 0);
+    assert(fabsf(pose.yaw - 1.5707963f) < 0.0001f);
     stopMotors();
     assert(levels[STBY_PIN] == LOW && pwm[LEFT_PWM] == 0 && pwm[RIGHT_PWM] == 0);
     assert(commandedSpeed == 0 && lastCurve == 0);
@@ -87,6 +105,8 @@ int main() {
     assert(levels[RIGHT_IN1] == LOW && levels[RIGHT_IN2] == LOW);
 #else
     assert(levels[STBY_PIN] == HIGH && motorLeaseMode == 1U);
+    assert(fabsf(wheelL.targetCps - 566.6f) < 0.01f);
+    assert(fabsf(wheelR.targetCps - 614.88f) < 0.01f);
     tickMs = 79U; osSystickHandler();
     assert(levels[STBY_PIN] == HIGH);
     tickMs = 80U; osSystickHandler();
@@ -125,13 +145,14 @@ int main() {
 }
 '''
     with tempfile.TemporaryDirectory(prefix="nhung_motor_lock_") as temporary:
-        root = Path(temporary)
-        test = root / "motor_io.cpp"
+        work = Path(temporary)
+        test = work / "motor_io.cpp"
         test.write_text(harness)
         for locked in (0, 1):
-            executable = root / f"motor_io_{locked}.exe"
+            executable = work / f"motor_io_{locked}.exe"
             subprocess.run(args.cxx + ["-std=c++11", "-Wall", "-Wextra", "-Werror",
-                           f"-DHYBRID_MOTOR_LOCK={locked}", str(test), "-o", str(executable)],
+                           f"-DHYBRID_MOTOR_LOCK={locked}", "-I", str(root / "include"),
+                           str(test), "-o", str(executable)],
                            check=True)
             subprocess.run([str(executable)], check=True)
             print(f"PASS actual motor functions: HYBRID_MOTOR_LOCK={locked}")

@@ -12,7 +12,12 @@ from check_planner_elf import check
 
 def verify_planner(source, target, env):
     package = env.PioPlatform().get_package_dir("toolchain-gccarmnoneeabi")
-    check(Path(str(target[0])), Path(package) / "bin")
+    flash_limit = int(env.BoardConfig().get("upload.maximum_size"))
+    ram_limit = int(env.BoardConfig().get("upload.maximum_ram_size"))
+    check(Path(str(target[0])), Path(package) / "bin",
+          flash_limit=flash_limit, ram_limit=ram_limit,
+          require_start_scan=env.subst("$PIOENV") in
+          ("hybrid_planner_check_128k", "hybrid_v1_staging"))
 
 
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.elf",

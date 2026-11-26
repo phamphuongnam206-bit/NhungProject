@@ -1,0 +1,19 @@
+{
+  "wheel": "left_J13",
+  "run": 1,
+  "method": "manual wheel revolutions on stand; distance inferred from approximate circumference, not measured ground travel",
+  "circumference_cm_user_approx": 13.8,
+  "wheel_revolutions_user_reported": 3,
+  "start_tim3_cnt": 215,
+  "end_tim3_cnt": 63274,
+  "timer_arr": 65535,
+  "delta_ticks": -2477,
+  "ticks_per_rev_candidate": 825.6666666667,
+  "inferred_distance_cm": 41.4,
+  "counts_per_cm_candidate": 59.8309178744,
+  "tim2_start": 10793,
+  "tim2_end": 10793,
+  "end_stable_seconds": 1.5,
+  "stby_low": true,
+  "status": "CANDIDATE_ONLY_REPEATABILITY_PENDING"
+}

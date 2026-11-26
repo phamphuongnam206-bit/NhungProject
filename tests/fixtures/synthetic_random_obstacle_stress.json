@@ -1,0 +1,10 @@
+{
+  "status": "SYNTHETIC_STRESS_ONLY",
+  "note": "These are not the four official random-obstacle positions.",
+  "rectangles_cm": [
+    [40, 70, 10, 10],
+    [100, 85, 10, 10],
+    [120, 60, 10, 10],
+    [155, 20, 10, 10]
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "wheel": "left_J13",
+  "circumference_cm_user_approx": 13.8,
+  "ticks_per_run": [2477, 2455],
+  "revolutions_per_run": 3,
+  "mean_ticks_per_rev_candidate": 822.0,
+  "counts_per_cm_candidate": 59.5652173913,
+  "run2_difference_from_run1_percent": -0.8881703674,
+  "status": "PROVISIONAL_TWO_MANUAL_RUNS_NO_GROUND_VALIDATION",
+  "firmware_parameters_updated": false
+}

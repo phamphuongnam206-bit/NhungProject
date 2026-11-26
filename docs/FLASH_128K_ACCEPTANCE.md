@@ -1,0 +1,19 @@
+# 128 KiB Flash acceptance, physical gate
+
+OpenOCD reported size register `0x80` and could read `0x08010000` and `0x0801FFF0`. Write and retention qualification is deferred. For the current 128 KiB load span see `docs/V1_AUTONOMOUS_PROGRESS.md`. The image extends above 64 KiB and requires this gate before installation.
+
+## 1. Backup without Flash writes
+
+Disconnect the motor battery, keep PB0/STBY LOW, use a stable logic supply and ST-Link. Make a new empty directory outside the repository. From the firmware repository, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/backup_flash_128k.ps1 -OpenOcd <full path to openocd.exe> -OutputDirectory <existing empty directory>` manually. The process-scoped execution-policy override is needed on Windows systems that block local scripts. The script halts the CPU, reads the Flash-size register and unique ID into two local OpenOCD logs, reads 131,072 bytes twice, checks both lengths and SHA-256 equality, and does not issue reset, resume, erase or program commands. Power the board off after the read. Copy both files, logs and the hash to separate storage. If either read fails or differs, stop; do not attempt the write test. Compare the two logs' device identity before using the backup.
+
+Run `python tools/inspect_flash_backup.py <one backup file>` on the saved file. It reports the full SHA-256, whether the lower and upper 64 KiB halves are identical, and non-`FF` byte counts for every upper 1 KiB page. An identical upper half is a possible address alias, not proof by itself. Check the firmware's actual occupied image, option bytes/read protection and any application data before choosing a test page. The reserved final 1 KiB (`0x0801FC00..0x0801FFFF`) is outside the current linker image, but may contain user data. **An all-`FF` page or linker reservation alone does not prove it is safe to erase.**
+
+An older local file at `D:/prj_Nhung/CUOI_KY/NhungProject-main/stm32_backup_128k.bin` is 131,072 bytes (SHA-256 `2e1d27f7a9e6c6096fab8db5e1c23dd48640be6ba7aa560874629b8ca95150a5`). Its halves differ, and the final page at `0x0801FC00` contains **331 non-`FF` bytes**. Four other upper pages at `0x08010000`, `0x08011000`, `0x08012000` and `0x08013000` also contain data. The file's board identity and readback provenance are not established here. Treat it as a warning: **do not select the final page for an erase test** until the current board has a fresh, matching backup and the page contents have been identified. This file does not prove write, alias or retention behavior.
+
+## 2. Controlled destructive test, manual only
+
+After reviewing the full backup and proving a page has no needed data, record the page address, its original 1,024 bytes and their SHA-256. If no page can be proved safe, stop and retain the 64 KiB fallback. With motor power disconnected, manually erase only the selected upper page, program a nontrivial pattern, read it back, and compare every byte. Read the corresponding lower address before and after; any change is an alias failure. Do not mass erase.
+
+Power the board fully off, then back on; read the upper test page again. PASS only if the pattern is identical, the lower page is unchanged, and no read/protection error occurred. Restore the original page bytes from the backup, read back and compare SHA-256. Then verify the original firmware region and any application data against the pretest backup, and check that the old firmware still boots with motor power disconnected. Any mismatch, unexpected reset, alias or restoration problem is FAIL. Do not upload the 128 KiB image in that case.
+
+The write/erase/power-cycle steps deliberately have no automatic command in this repository. They require the operator to choose the page after inspecting the specific board and backup. Record OpenOCD log, page address, both hashes, power-cycle result and restored hash before declaring Flash `VERIFIED`.

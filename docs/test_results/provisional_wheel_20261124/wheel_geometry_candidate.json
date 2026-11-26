@@ -1,0 +1,23 @@
+{
+  "status": "PROVISIONAL_MEASUREMENTS",
+  "wheel_circumference_cm_user_approx": 13.8,
+  "wheel_diameter_cm_calculated": 4.392,
+  "wheel_track_center_to_center_cm_user_reported": 9.0,
+  "effective_wheel_track_cm": null,
+  "right_J12": {
+    "ticks_per_rev_candidate": 753.1667,
+    "counts_per_cm_candidate": 54.5773,
+    "manual_runs_ticks_3_rev": [2251, 2268]
+  },
+  "left_J13": {
+    "ticks_per_rev_candidate": 822.0,
+    "counts_per_cm_candidate": 59.5652,
+    "manual_runs_ticks_3_rev": [2477, 2455]
+  },
+  "notes": [
+    "Wheel diameter is circumference divided by pi; circumference was approximate.",
+    "Encoder candidates came from manually turning each raised wheel, not measured ground travel.",
+    "The 9 cm center-to-center measurement is a geometric estimate, not an effective turning track measurement.",
+    "Do not copy these candidate values into navigation firmware until ground-motion validation."
+  ]
+}

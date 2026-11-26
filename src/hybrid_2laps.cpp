@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 #include <math.h>
+#include "map_one_run_calibration.h"
+#include "v1_mpu_profile.h"
 
 // The link-check environment must never energize the bridge, including braking.
 #ifndef HYBRID_MOTOR_LOCK
@@ -13,6 +15,15 @@
 #ifndef HYBRID_PLANNER_INPUTS_VERIFIED
 #define HYBRID_PLANNER_INPUTS_VERIFIED 0
 #endif
+#ifndef HYBRID_PLANNER_128K
+#define HYBRID_PLANNER_128K 0
+#endif
+#if HYBRID_PLANNER_128K && HYBRID_PLANNER_INPUTS_VERIFIED
+#error "128 KiB qualification must keep planner inputs unverified"
+#endif
+#if defined(HYBRID_V1_STAGING) && (!HYBRID_PLANNER_128K || !HYBRID_MOTOR_LOCK || HYBRID_PLANNER_INPUTS_VERIFIED)
+#error "V1 staging requires the locked, unverified 128 KiB qualification gates"
+#endif
 #if HYBRID_PLANNER_ROUTE
 #if !HYBRID_MOTOR_LOCK
 #error "Planner route integration is diagnostic only and requires motor lock"
@@ -23,6 +34,15 @@
 #include "planner_pose_window.h"
 #include "planner_range_ready.h"
 #include "map_grid.h"
+#if HYBRID_PLANNER_128K
+#include "start_localization.h"
+#include "planner_motion_health.h"
+#include "planner_goal_gate.h"
+#include "planner_start_entry.h"
+#include "planner_start_entry_motion.h"
+#include "planner_goal_exit.h"
+#include "planner_goal_exit_motion.h"
+#endif
 PlannerRouteTarget plannerRouteTarget{};
 #endif
 
@@ -48,23 +68,18 @@ VL53L0X sensors[SENSOR_COUNT];
 
 
 
-// Sua theo quang duong do thuc: xung encoder cho moi cm lan banh.
-#ifndef MAP_COUNTS_CM_L
-#define MAP_COUNTS_CM_L 45.0f
-#endif
-#ifndef MAP_COUNTS_CM_R
-#define MAP_COUNTS_CM_R 45.0f
-#endif
-#ifndef MAP_TRACK_CM
-#define MAP_TRACK_CM 9.0f
-#endif
+constexpr float MAP_COUNTS_CM_L = MapOneRunCalibration::leftCountsPerCm;
+constexpr float MAP_COUNTS_CM_R = MapOneRunCalibration::rightCountsPerCm;
+// Provisional for steering. The planner gate separately requires effective track.
+constexpr float MAP_TRACK_CM = MapOneRunCalibration::steeringTrackCm;
 static_assert(MAP_COUNTS_CM_L > 0 && MAP_COUNTS_CM_R > 0 && MAP_TRACK_CM > 0,
               "Encoder scales and wheel spacing must be positive");
-constexpr int32_t LEFT_ENC_DIR = -1, RIGHT_ENC_DIR = 1;
+constexpr int32_t LEFT_ENC_DIR = MapOneRunCalibration::leftEncoderSign;
+constexpr int32_t RIGHT_ENC_DIR = MapOneRunCalibration::rightEncoderSign;
 constexpr float RAD = 0.01745329252f;
 constexpr float FAST_CM_S = 17.5f, SLOW_CM_S = 11.5f;
 constexpr float TURN_CM_S = 13.0f, MIN_WHEEL_CM_S = 5.5f;
-constexpr float YAW_SIGN = -1.0f;
+constexpr float YAW_SIGN = MapOneRunCalibration::hybridYawSign;
 constexpr float BRAKE_DECEL_CM_S2 = 35.0f;
 constexpr float REACTION_TIME_S = 0.18f;
 constexpr float OBSTACLE_MARGIN_CM = 1.5f;
@@ -113,7 +128,9 @@ constexpr float START_LINE_Y = 7.0f;
 constexpr float FINISH_Y = 7.0f, FINISH_X_MIN = 125.0f, FINISH_X_MAX = 175.0f;
 constexpr Point MAP_START{33.0f, 7.5f};
 constexpr Point FINISH_APPROACH{152.5f, 7.5f};
-constexpr float HALF_LENGTH = 6.8f, HALF_WIDTH = 5.8f;
+// User-confirmed overall body size along the travel axis: 13 x 10 cm.
+// OBSTACLE_MARGIN_CM is applied separately during collision checks.
+constexpr float HALF_LENGTH = 6.5f, HALF_WIDTH = 5.0f;
 // Diem ngam ao sau vach de giu huong. Xe phanh ngay khi ca than qua vach.
 constexpr Point FINISH_EXTENSION{FINISH_APPROACH.x, -12.0f};
 
@@ -136,7 +153,7 @@ constexpr Box MAP_BOXES[] = {
   {55,45,5,5}, // T4
   {5,55,5,5}, // T5
   {5,75,5,5}, // T6
-  {35,85,5,5}, // T7
+  {35,90,5,5}, // T7
   {45,115,5,5}, // T8
   {65,75,5,5}, // T9
   {75,65,5,5}, // T10
@@ -158,18 +175,67 @@ constexpr Box MAP_BOXES[] = {
 #endif
 
 // J8, J9, J10, J11. Vi tri tinh tu tam xe, right > 0 ben phai.
-// J9/J10 dat lui 1.5 cm so voi mep dau xe, nen goc do bat dau o forward=4.5.
+// Nominal origins used by the planner. Survey the mounted lenses before use.
 struct Beam { float right, forward, angleDeg; };
 constexpr Beam BEAMS[SENSOR_COUNT] = {
   {-2.5f, 4.5f, -35.43f}, {-2.5f, 4.5f, 0}, {2.5f, 4.5f, 0}, {2.5f, 4.5f, 35.43f},
 };
 
-enum class RunMode { WAIT_SENSORS, AUTO_RUN, LOCKED, FINISHED };
+enum class RunMode {
+  WAIT_SENSORS,
+  WAIT_BUTTON_RELEASE,
+  WAIT_BUTTON_PRESS,
+  AUTO_RUN,
+  LOCKED,
+  FINISHED
+};
 enum class Fault : uint8_t { NONE, MPU, LEFT_WHEEL, RIGHT_WHEEL, SENSOR, OBSTACLE, CONTROL };
 RunMode mode = RunMode::WAIT_SENSORS;
 Fault fault = Fault::NONE;
 const char *status = "START";
 Pose pose{MAP_START, 0};
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+constexpr uint32_t START_BUTTON_PIN = PB1;
+constexpr uint32_t START_BUTTON_DEBOUNCE_MS = 30U;
+// These values require surveyed START bounds, mount/FOV measurements and a
+// reviewed finish rule. Empty defaults cannot authorize a global pose.
+struct StartRegionConfig {
+  float xmin, xmax, ymin, ymax, xyStep;
+  float headingCenter, headingSpan, headingStep;
+  float maxMeanError, ambiguitySlack, ambiguityDistance, ambiguityAngle;
+  volatile bool verified;
+};
+StartRegionConfig startRegion{};
+volatile bool startMountsVerified = false;
+float startHalfFovRad[SENSOR_COUNT] = {};
+MapCellPosition reviewedGoal{};
+volatile bool plannerGoalVerified = false;
+PlannerGoalGateConfig goalGate{}; // NEEDS_REVIEWED_FINISH_RULE
+// Reviewed calibration belongs in Flash. Zero means NEEDS_MEASUREMENT and
+// fails closed; a volatile-qualified read below keeps the guard in this
+// diagnostic image without placing unmeasured values in SRAM.
+struct GoalExitMeasurements {
+  float terminalCenterYcm, brakeOverrunCm, speedCmS, progressEpsilonCm;
+  uint32_t timeoutMs, stallMs;
+};
+const GoalExitMeasurements goalExitMeasurements{0.0f, 0.0f, 0.0f, 0.0f, 0U, 0U};
+struct StartEntryMeasurements {
+  float terminalCenterYcm, brakeOverrunCm, speedCmS, progressEpsilonCm;
+  uint32_t timeoutMs, stallMs;
+};
+const StartEntryMeasurements startEntryMeasurements{0.0f, 0.0f, 0.0f, 0.0f, 0U, 0U};
+// START and GOAL cannot overlap; share the 24-byte boundary state in SRAM.
+PlannerBoundaryMotion boundaryMotion{};
+float gyroMapYawOffsetRad = 0;
+volatile NavBootStatus startLocalizationStatus = NAV_BOOT_BAD_INPUT;
+volatile float startLocalizationMeanErrorCm = 0;
+volatile uint32_t startLocalizationCandidates = 0;
+volatile uint32_t startScanMaxCycles = 0;
+volatile uint32_t plannerPollMaxCycles = 0;
+volatile uint32_t controlLoopMaxCycles = 0;
+PlannerHealthConfig plannerHealthConfig{}; // NEEDS_MEASUREMENT
+PlannerMotionHealth plannerHealth{};
+#endif
 bool leavingStartLine = true;
 
 float pathS[ROUTE_COUNT] = {};
@@ -213,7 +279,12 @@ uint32_t frameAt = 0;
 // the final pose/map authorization explicit. A route is not armed from a
 // guessed START pose or from the placeholder map.
 PlannerSnapshotLimits plannerSnapshotLimits{100, SENSOR_STALE_MS, FRAME_SKEW_MS};
+#if HYBRID_PLANNER_128K
+// Qualification keeps the runtime link path while the actual value stays 0.
+volatile bool plannerMapVerified = false;
+#else
 bool plannerMapVerified = false;
+#endif
 bool plannerPoseVerified = false;
 bool plannerRuntimeReady = false;
 bool plannerGoalReached = false;
@@ -474,6 +545,16 @@ bool writeMpuReg(uint8_t r, uint8_t v) {
   return Wire.endTransmission() == 0;
 }
 
+bool readMpuReg(uint8_t r, uint8_t &value) {
+  Wire.beginTransmission(MPU_ADDR); Wire.write(r);
+  if (Wire.endTransmission(false) != 0 ||
+      Wire.requestFrom(MPU_ADDR, (uint8_t)1) != 1) return false;
+  const int result = Wire.read();
+  if (result < 0) return false;
+  value = uint8_t(result);
+  return true;
+}
+
 bool readGyroRawZ(int16_t &rawZ) {
   Wire.beginTransmission(MPU_ADDR); Wire.write(0x47);
   if (Wire.endTransmission(false) != 0) return false;
@@ -486,17 +567,21 @@ bool readGyroRawZ(int16_t &rawZ) {
 
 bool initGyro() {
   Wire.setSDA(PB7); Wire.setSCL(PB6); Wire.begin(); Wire.setClock(100000);
-  if (!writeMpuReg(0x6B, 0x01) || !writeMpuReg(0x1A, 0x03) ||
-      !writeMpuReg(0x19, 0x09) || !writeMpuReg(0x1B, 0x08)) return false;
+  if (!writeMpuReg(0x6B, 0x01) || !writeMpuReg(0x1A, V1Mpu::filter) ||
+      !writeMpuReg(0x19, V1Mpu::sampleDivider) ||
+      !writeMpuReg(0x1B, V1Mpu::gyroConfig)) return false;
+  uint8_t filter = 0, sampleRate = 0, gyroRange = 0;
+  if (!readMpuReg(0x1A, filter) || filter != V1Mpu::filter ||
+      !readMpuReg(0x19, sampleRate) || sampleRate != V1Mpu::sampleDivider ||
+      !readMpuReg(0x1B, gyroRange) || gyroRange != V1Mpu::gyroConfig) return false;
   delay(60);
-  int32_t sum = 0;
-  for (int i = 0; i < 50; ++i) {
+  V1Mpu::StationaryBias bias;
+  for (unsigned i = 0; i < V1Mpu::biasSamples; ++i) {
     int16_t gz;
-    if (!readGyroRawZ(gz)) return false;
-    sum += gz;
-    delay(6);
+    if (!readGyroRawZ(gz) || !bias.add(gz)) return false;
+    delay(V1Mpu::samplePeriodMs);
   }
-  gyroBias = sum / 50.0f;
+  gyroBias = bias.mean();
   currentYawDeg = 0.0f;
   lastGyroGoodMs = lastGyroMs = millis();
   return true;
@@ -509,7 +594,7 @@ void updateGyro(uint32_t now) {
   int16_t rawZ;
   if (readGyroRawZ(rawZ)) {
     lastGyroGoodMs = now;
-    yawRateDps = (rawZ - gyroBias) / 65.5f;
+    yawRateDps = (rawZ - gyroBias) / V1Mpu::gyroLsbPerDps;
     if (fabsf(yawRateDps) < 0.30f) yawRateDps = 0.0f;
     currentYawDeg += yawRateDps * (dtMs * 0.001f);
   }
@@ -673,7 +758,11 @@ float square(float x) { return x * x; }
 
 void updatePose(int32_t l, int32_t r) {
   const float ds = (l / MAP_COUNTS_CM_L + r / MAP_COUNTS_CM_R) * 0.5f;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  const float yaw = gyroMapYawOffsetRad + YAW_SIGN * currentYawDeg * RAD;
+#else
   const float yaw = YAW_SIGN * currentYawDeg * RAD;
+#endif
   const float avg = (pose.yaw + yaw) * 0.5f;
   pose.p.x += ds * sinf(avg);
   pose.p.y += ds * cosf(avg);
@@ -686,12 +775,118 @@ void initPlannerDiagnosticConfig() {
   plannerPoseVerified = false;
 #if HYBRID_PLANNER_INPUTS_VERIFIED
   plannerMapVerified = true;
+#if !HYBRID_PLANNER_128K
   plannerPoseVerified = true;
+#endif
+#endif
+#if HYBRID_PLANNER_128K
+  plannerGoalVerified = false;
+  startScanMaxCycles = 0;
+  plannerPollMaxCycles = 0;
+  controlLoopMaxCycles = 0;
 #endif
   plannerRuntimeReady = false;
   plannerGoalReached = false;
   plannerStatus = ONE_RUN_STOPPED;
+#if HYBRID_PLANNER_128K
+  startLocalizationStatus = NAV_BOOT_BAD_INPUT;
+  startLocalizationMeanErrorCm = 0;
+  startLocalizationCandidates = 0;
+  plannerLastPollMs = 0;
+  plannerHealth.reset();
+  boundaryMotion = {};
+  leavingStartLine = true;
+#endif
 }
+
+#if HYBRID_PLANNER_128K
+void initPlannerCycleCounter() {
+  // Cortex-M3 DWT CYCCNT: diagnostic only, never authorizes motion.
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0U;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+void recordPlannerCycles(volatile uint32_t &maximum, uint32_t started) {
+  const uint32_t elapsed = DWT->CYCCNT - started; // wraps modulo 2^32
+  if (elapsed > maximum) maximum = elapsed;
+}
+
+struct ControlLoopCycleScope {
+  uint32_t started = DWT->CYCCNT;
+  ~ControlLoopCycleScope() { recordPlannerCycles(controlLoopMaxCycles, started); }
+};
+
+void attemptStartLocalization(uint32_t now) {
+  PlannerPoseSample stablePose{};
+  if (plannerPoseVerified || !plannerMapVerified ||
+      !startRegion.verified || !startMountsVerified || !frameReady ||
+      now - frameAt > 100U ||
+      !StartLocalization_FrameDue(frameAt, plannerLastPollMs) ||
+      !wheelsSettled() ||
+      !poseHistory.stableOrigin(now, &stablePose)) return;
+  // Before runtime begins this timestamp belongs to START scan deduplication.
+  // beginPlannerRuntime replaces it with the scheduler timestamp afterwards.
+  plannerLastPollMs = frameAt;
+  NavBootRect fixed[sizeof(MAP_BOXES) / sizeof(MAP_BOXES[0])] = {};
+  for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); ++i) {
+    fixed[i] = {MAP_BOXES[i].x - MAP_BOXES[i].hx,
+                MAP_BOXES[i].y - MAP_BOXES[i].hy,
+                2.0f * MAP_BOXES[i].hx, 2.0f * MAP_BOXES[i].hy};
+  }
+  StartLocalizationInput input{};
+  auto &scan = input.scan;
+  scan.arena_width_cm = 180.0f;
+  scan.arena_height_cm = 120.0f;
+  scan.blocked = fixed;
+  scan.blocked_count = sizeof(fixed) / sizeof(fixed[0]);
+  // The first rectangle is tape marking a forbidden zone, not a ToF target.
+  // The arena outline is tape as well; only T1..T17 reflect in this model.
+  scan.first_reflector_index = 1U;
+  scan.arena_edges_reflect = 0U;
+  scan.robot_length_cm = 2.0f * HALF_LENGTH;
+  scan.robot_width_cm = 2.0f * HALF_WIDTH;
+  scan.body_margin_cm = 0.5f;
+  scan.xmin_cm = startRegion.xmin; scan.xmax_cm = startRegion.xmax;
+  scan.ymin_cm = startRegion.ymin; scan.ymax_cm = startRegion.ymax;
+  scan.xy_step_cm = startRegion.xyStep;
+  scan.heading_center_rad = startRegion.headingCenter;
+  scan.heading_span_rad = startRegion.headingSpan;
+  scan.heading_step_rad = startRegion.headingStep;
+  scan.max_mean_error_cm = startRegion.maxMeanError;
+  scan.ambiguity_slack_cm = startRegion.ambiguitySlack;
+  scan.ambiguity_distance_cm = startRegion.ambiguityDistance;
+  scan.ambiguity_angle_rad = startRegion.ambiguityAngle;
+  input.now_ms = now;
+  input.course_verified = plannerMapVerified;
+  input.start_region_verified = startRegion.verified;
+  input.mounts_verified = startMountsVerified;
+  input.stationary = true;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    // Hybrid mounting angle is clockwise; core yaw is counterclockwise.
+    input.ranges[i] = {BEAMS[i].forward, -BEAMS[i].right,
+                       -BEAMS[i].angleDeg * RAD, startHalfFovRad[i],
+                       RANGE_OPEN_MM * 0.1f, frame[i].mm * 0.1f,
+                       uint8_t(vlReady[i] && frame[i].stableOrigin &&
+                               frame[i].mm > 0U)};
+    input.sample_ms[i] = frame[i].at;
+  }
+  const uint32_t started = DWT->CYCCNT;
+  const NavBootResult result = StartLocalization_Estimate(&input);
+  recordPlannerCycles(startScanMaxCycles, started);
+  startLocalizationStatus = result.status;
+  startLocalizationMeanErrorCm = result.mean_error_cm;
+  startLocalizationCandidates = result.candidates_checked;
+  if (result.status != NAV_BOOT_CONFIDENT) return;
+  // Core heading: +X/CCW. Hybrid heading: +Y/CW.
+  const float hybridYaw = remainderf(1.57079632679f -
+      result.pose.theta_rad, 6.28318530718f);
+  gyroMapYawOffsetRad = hybridYaw - YAW_SIGN * currentYawDeg * RAD;
+  pose = {{result.pose.x_cm, result.pose.y_cm}, hybridYaw};
+  poseHistory = PlannerPoseWindow{};
+  plannerPoseVerified = true;
+}
+#endif
 
 void fillPlannerConfig(OneRunConfig &config) {
   config = {};
@@ -700,7 +895,7 @@ void fillPlannerConfig(OneRunConfig &config) {
   config.planner.footprint = {HALF_LENGTH / 5.0f, HALF_WIDTH / 5.0f};
   config.navigation.follower = {5.0f, 20.0f, 0.35f, 5.0f, 20.0f,
                                 3.0f, 8.0f, 20.0f, 2.0f};
-  config.navigation.wheels = {10.0f, 30.0f, 40.0f, 80.0f};
+  config.navigation.wheels = {MAP_TRACK_CM, 30.0f, 40.0f, 80.0f};
   config.navigation.safety = {100U, SENSOR_STALE_MS, FRONT_HARD_STOP_MM};
   config.sensors.min_range_mm = 30U;
   config.sensors.max_range_mm = RANGE_OPEN_MM;
@@ -713,13 +908,65 @@ void fillPlannerConfig(OneRunConfig &config) {
     };
   }
   config.replan = {100U, 2U, 2U};
-  // The finish cell is a fixture only until the official map/rule is supplied.
+#if HYBRID_PLANNER_128K
+  config.goal = reviewedGoal;
+#else
+  // 64 KiB qualification baseline preserves its historical fixture.
   config.goal = {1U, 30U};
+#endif
   config.inflation_cells = 1U;
 }
 
+// Defined below with the local-arc collision checks.
+bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkHits);
+
+#if HYBRID_PLANNER_128K
+bool plannerKinematicsReady() {
+  const MapOneRunCalibration::PlannerKinematicsExpected expected{
+      MAP_COUNTS_CM_L, MAP_COUNTS_CM_R,
+      float(LEFT_ENC_DIR), float(RIGHT_ENC_DIR),
+      MAP_TRACK_CM * 10.0f, HALF_LENGTH * 20.0f,
+      HALF_WIDTH * 20.0f, YAW_SIGN, BRAKE_DECEL_CM_S2 * 10.0f};
+  const volatile MapOneRunCalibration::Calibration &calibration =
+      MapOneRunCalibration::candidate;
+  return MapOneRunCalibration::PlannerKinematicsReady(calibration, expected);
+}
+#endif
+
 bool beginPlannerRuntime() {
+#if HYBRID_PLANNER_128K
   if (!plannerMapVerified || !plannerPoseVerified) return false;
+  if (!plannerKinematicsReady()) {
+    status = "KINEMATICS_UNVERIFIED";
+    return false;
+  }
+  if (!plannerGoalVerified) return false;
+  const uint32_t now = millis();
+  PlannerStartEntryConfig handoff{};
+  handoff.verified = startRegion.verified && startMountsVerified;
+  handoff.gate_xmin_cm = 0.0f;
+  handoff.gate_xmax_cm = 60.0f;
+  handoff.line_y_cm = 0.0f;
+  handoff.half_length_cm = HALF_LENGTH;
+  handoff.half_width_cm = HALF_WIDTH;
+  handoff.heading_tolerance_rad = startRegion.headingSpan;
+  const bool poseFresh = gyroReady && now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+                         now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+  bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    rangesFresh &= vlReady[i] && frame[i].mm != 0U &&
+                   now - frame[i].at <= SENSOR_STALE_MS;
+  }
+  if (!PlannerStartEntry_HandoffPermitted(
+          handoff, plannerPoseVerified, poseFresh, rangesFresh,
+          wheelsSettled(), footprintFree(pose.p.x, pose.p.y,
+              sinf(pose.yaw), cosf(pose.yaw), now, true),
+          pose.p.x, pose.p.y, pose.yaw)) return false;
+  if (leavingStartLine || boundaryMotion.phase != PlannerBoundaryPhase::IDLE)
+    return false;
+#else
+  if (!plannerMapVerified || !plannerPoseVerified) return false;
+#endif
   MapGrid baseMap{};
   OneRunConfig config{};
   if (MapGrid_InitBase(&baseMap) != MAP_GRID_OK) return false;
@@ -741,6 +988,9 @@ bool beginPlannerRuntime() {
 }
 
 void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
+#if HYBRID_PLANNER_128K
+  attemptStartLocalization(now);
+#endif
   if (!plannerMapVerified || !plannerPoseVerified) return;
   if (!plannerRuntimeReady) {
     if (!beginPlannerRuntime()) {
@@ -781,11 +1031,30 @@ void pollPlannerRuntime(uint32_t now, float dt, bool emergencyStop) {
     plannerStatus = ONE_RUN_STOPPED;
     return;
   }
+#if HYBRID_PLANNER_128K
+  const bool goalWasComplete = plannerStatus == ONE_RUN_COMPLETE;
+#endif
+#if HYBRID_PLANNER_128K
+  const uint32_t started = DWT->CYCCNT;
+#endif
   plannerStatus = PlannerRuntime_Poll(&snapshot, plannerPoseVerified, wheelsSettled());
-  if (plannerStatus == ONE_RUN_COMPLETE) plannerGoalReached = true;
+#if HYBRID_PLANNER_128K
+  recordPlannerCycles(plannerPollMaxCycles, started);
+#endif
+  if (plannerStatus == ONE_RUN_COMPLETE) {
+#if HYBRID_PLANNER_128K
+    // Reuse the AUTO_RUN stop/plan timestamps for the GOAL quiet window.
+    if (!goalWasComplete) stoppedAt = lastPlanMs = now;
+#else
+    plannerGoalReached = true;
+#endif
+  }
   if (plannerStatus != ONE_RUN_OK && plannerStatus != ONE_RUN_COMPLETE && plannerStatus != ONE_RUN_STOPPED) {
     PlannerRuntime_Invalidate();
     plannerRuntimeReady = false;
+    // A planner fault is terminal for this run. Invalidation alone would let
+    // the next control tick call Begin again and silently restart the mission.
+    halt("PLANNER_FAULT", Fault::CONTROL);
   }
 }
 #endif
@@ -831,7 +1100,9 @@ void updateProgress() {
 // Luu vai diem vat can gan nhat da do de xe khong quay vao vat khi mat do
 // khong con chieu thang vao no. Vong doi ngan de theo kip vat moi.
 struct Hit { Point p; uint32_t at; };
-constexpr uint8_t MAX_HITS = 20;
+// 18 recent hits retain the one-obstacle replan history within the 20 KiB
+// SRAM budget after adding the GOAL exit state. Overflow replaces oldest.
+constexpr uint8_t MAX_HITS = 18;
 constexpr uint32_t HIT_TTL_MS = 3500;
 Hit hits[MAX_HITS] = {};
 uint8_t nextHit = 0;
@@ -848,6 +1119,12 @@ void recordFrame(uint32_t now) {
   if (frameAt == usedFrameAt) return;
   usedFrameAt = frameAt;
   for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+#if HYBRID_PLANNER_ROUTE
+    // Never project a read-time pose into the persistent local obstacle map
+    // when the sensor's measurement origin is not established.
+    if (!vlReady[i] || !frame[i].stableOrigin || !frame[i].mm ||
+        now - frame[i].at > SENSOR_STALE_MS) continue;
+#endif
     if (frame[i].mm > 530) continue;
     const Pose &o = frame[i].origin;
     const Beam &beam = BEAMS[i];
@@ -910,6 +1187,139 @@ bool footprintFree(float x, float y, float s, float c, uint32_t now, bool checkH
   }
   return true;
 }
+
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+PlannerStartEntryMotionConfig startEntryMotionConfig() {
+  PlannerStartEntryMotionConfig c{};
+  c.verified = plannerMapVerified && plannerPoseVerified &&
+               startRegion.verified && startMountsVerified &&
+               plannerKinematicsReady();
+  c.gate_xmin_cm = 0.0f;
+  c.gate_xmax_cm = 60.0f;
+  c.line_y_cm = 0.0f;
+  c.outside_ymin_cm = startRegion.ymin;
+  c.half_length_cm = HALF_LENGTH;
+  c.half_width_cm = HALF_WIDTH;
+  c.heading_tolerance_rad = startRegion.headingSpan;
+  const volatile StartEntryMeasurements *measured = &startEntryMeasurements;
+  c.terminal_center_y_cm = measured->terminalCenterYcm;
+  c.brake_overrun_cm = measured->brakeOverrunCm;
+  c.speed_cm_s = measured->speedCmS;
+  c.progress_epsilon_cm = measured->progressEpsilonCm;
+  c.timeout_ms = measured->timeoutMs;
+  c.stall_ms = measured->stallMs;
+  // The lowest allowed stop must satisfy the planner's in-arena footprint.
+  c.verified &= c.terminal_center_y_cm - c.brake_overrun_cm -
+                HALF_LENGTH > MAP_BOTTOM;
+  return c;
+}
+
+bool startEntryPathClear(const PlannerStartEntryMotionConfig &c, uint32_t now) {
+  const auto clearWith = [&](const PlannerGoalExitRect *box, size_t count,
+                             float margin) {
+    return PlannerStartEntryMotion_PathClear(c, pose.p.x, pose.p.y, pose.yaw,
+                                              box, count, margin);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM)) return false;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM)) return false;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f)) return false;
+  }
+  return true;
+}
+
+enum class GoalExitPreflight { CLEAR, WAIT_SENSORS, UNVERIFIED, BLOCKED };
+
+PlannerGoalExitMotionConfig goalExitMotionConfig() {
+  PlannerGoalExitMotionConfig m{};
+  PlannerGoalExitConfig &c = m.corridor;
+  c.verified = plannerGoalVerified && goalGate.verified;
+  c.gate_xmin_cm = goalGate.xmin_cm;
+  c.gate_xmax_cm = goalGate.xmax_cm;
+  c.line_y_cm = goalGate.ymax_cm;
+  c.exit_ymin_cm = goalGate.ymin_cm;
+  c.half_length_cm = HALF_LENGTH;
+  c.half_width_cm = HALF_WIDTH;
+  c.obstacle_margin_cm = OBSTACLE_MARGIN_CM;
+  c.heading_tolerance_rad = goalGate.heading_tolerance_rad;
+  const volatile GoalExitMeasurements *measured = &goalExitMeasurements;
+  c.terminal_center_y_cm = measured->terminalCenterYcm;
+  c.brake_overrun_cm = measured->brakeOverrunCm;
+  m.speed_cm_s = measured->speedCmS;
+  m.progress_epsilon_cm = measured->progressEpsilonCm;
+  m.timeout_ms = measured->timeoutMs;
+  m.stall_ms = measured->stallMs;
+  return m;
+}
+
+bool goalExitMovingPathClear(const PlannerGoalExitMotionConfig &m, uint32_t now) {
+  const auto clearWith = [&](const PlannerGoalExitRect *box, size_t count,
+                             float margin) {
+    return PlannerGoalExitMotion_PathClear(m, pose.p.x, pose.p.y, pose.yaw,
+                                           box, count, margin);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM)) return false;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM)) return false;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f)) return false;
+  }
+  return true;
+}
+
+GoalExitPreflight checkGoalExitCorridor(uint32_t now, bool pulseQuiet) {
+  const PlannerGoalExitMotionConfig m = goalExitMotionConfig();
+  PlannerGoalExitConfig c = m.corridor;
+  if (!PlannerGoalExitMotion_ConfigReady(m))
+    return GoalExitPreflight::UNVERIFIED;
+  bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+  for (uint8_t i = 0; i < SENSOR_COUNT; ++i) {
+    rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                   frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+  }
+  const bool poseFresh = plannerPoseVerified && gyroReady &&
+      now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+      now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+  if (!poseFresh) return GoalExitPreflight::BLOCKED;
+  if (!rangesFresh) return GoalExitPreflight::WAIT_SENSORS;
+  const auto clearWith = [&](const PlannerGoalExitRect *obstacle, size_t count,
+                             float margin) {
+    c.obstacle_margin_cm = margin;
+    return PlannerGoalExit_CorridorClear(c, true, poseFresh, rangesFresh,
+        pulseQuiet && wheelsSettled(), pose.p.x, pose.p.y, pose.yaw,
+        obstacle, count);
+  };
+  if (!clearWith(nullptr, 0U, OBSTACLE_MARGIN_CM))
+    return GoalExitPreflight::BLOCKED;
+  for (const Box &box : MAP_BOXES) {
+    const PlannerGoalExitRect obstacle{
+        box.x - box.hx, box.y - box.hy, 2.0f * box.hx, 2.0f * box.hy};
+    if (!clearWith(&obstacle, 1U, OBSTACLE_MARGIN_CM))
+      return GoalExitPreflight::BLOCKED;
+  }
+  for (const Hit &hit : hits) {
+    if (!hit.at || now - hit.at > HIT_TTL_MS) continue;
+    const PlannerGoalExitRect obstacle{
+        hit.p.x - 0.1f, hit.p.y - 0.1f, 0.2f, 0.2f};
+    if (!clearWith(&obstacle, 1U, 4.3f))
+      return GoalExitPreflight::BLOCKED;
+  }
+  return GoalExitPreflight::CLEAR;
+}
+#endif
 
 bool finishPassed(float x, float y, float s, float c) {
 #if HYBRID_PLANNER_ROUTE
@@ -1229,6 +1639,10 @@ void setup() {
   initRoute();
 #else
   initPlannerDiagnosticConfig();
+#if HYBRID_PLANNER_128K
+  initPlannerCycleCounter();
+  pinMode(START_BUTTON_PIN, INPUT_PULLUP);
+#endif
 #endif
   initHardwareEncoders();
   if (!initArcSensors()) { halt("VL53_INIT_FAIL", Fault::SENSOR); return; }
@@ -1308,6 +1722,9 @@ bool rangesPermitMotion(uint32_t now, bool fresh) {
 }
 
 void loop() {
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  ControlLoopCycleScope loopCycles{}; // records every return path
+#endif
   reloadWatchdog();
 #if !defined(HYBRID_COMPACT_DEBUG) || !HYBRID_COMPACT_DEBUG
   serviceBluetooth();
@@ -1350,6 +1767,9 @@ void loop() {
   int32_t dL, dR;
   updateEncoders(dL, dR);
   lastEncoderSampleMs = now;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  const float oldYaw = pose.yaw;
+#endif
   updatePose(dL, dR);
 #if HYBRID_PLANNER_ROUTE
   poseHistory.record({pose.p.x, pose.p.y, pose.yaw, now});
@@ -1368,6 +1788,33 @@ void loop() {
     }
   }
   if (!rangesPermitMotion(now, frameReady && oldestRangeAge <= SENSOR_STALE_MS)) return;
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  // Require a stable release after boot, then a fresh stable press. PB1 is
+  // pulled up on the reviewed PCB; a held button at power-on cannot start.
+  if (mode == RunMode::WAIT_SENSORS) {
+    mode = RunMode::WAIT_BUTTON_RELEASE;
+    stoppedAt = now;
+  }
+  if (mode == RunMode::WAIT_BUTTON_RELEASE || mode == RunMode::WAIT_BUTTON_PRESS) {
+    const bool released = digitalRead(START_BUTTON_PIN) == HIGH;
+    if (mode == RunMode::WAIT_BUTTON_RELEASE) {
+      if (!released) stoppedAt = now;
+      else if (now - stoppedAt >= START_BUTTON_DEBOUNCE_MS) {
+        mode = RunMode::WAIT_BUTTON_PRESS;
+        stoppedAt = now;
+      }
+    } else if (released) stoppedAt = now;
+    else if (now - stoppedAt >= START_BUTTON_DEBOUNCE_MS) {
+      mode = RunMode::AUTO_RUN;
+      plannerLastPollMs = now - 30U;
+    }
+    if (mode != RunMode::AUTO_RUN) {
+      stopMotors();
+      status = "WAIT_START_BUTTON";
+      return;
+    }
+  }
+#endif
   mode = RunMode::AUTO_RUN;
 
   const float sinYaw = sinf(pose.yaw), cosYaw = cosf(pose.yaw);
@@ -1376,17 +1823,157 @@ void loop() {
     return;
   }
 
+#if !HYBRID_PLANNER_ROUTE
   if (leavingStartLine && startLineCleared(sinYaw, cosYaw)) {
     leavingStartLine = false;
     lastPlanMs = now - 30U;
   }
+#endif
   recordFrame(now);
   const float frontClearance = min(frame[1].mm, frame[2].mm) * 0.1f;
   const float motorDt = fminf(dt, 0.025f);
   const float forwardSpeed = fmaxf(0.0f, measuredForwardSpeed());
   const bool emergency = frontEmergency(frontClearance, forwardSpeed);
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  if (leavingStartLine) {
+    attemptStartLocalization(now);
+    plan = {};
+    if (!plannerPoseVerified) {
+      status = "START_LOCALIZING";
+      stopMotors(true);
+      return;
+    }
+    const PlannerStartEntryMotionConfig entry = startEntryMotionConfig();
+    if (!PlannerStartEntryMotion_ConfigReady(entry)) {
+      status = "START_ENTRY_UNVERIFIED";
+      stopMotors(true);
+      return;
+    }
+    const bool poseFresh = gyroReady &&
+        now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+        now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+    bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+    for (uint8_t i = 0; i < SENSOR_COUNT; ++i)
+      rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                     frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+    const bool pathClear = !emergency &&
+        frontSpeedLimit(frontClearance) >= entry.speed_cm_s &&
+        startEntryPathClear(entry, now);
+    if (boundaryMotion.phase == PlannerStartEntryPhase::IDLE) {
+      if (!PlannerStartEntryMotion_Begin(&boundaryMotion, entry, true,
+          poseFresh, rangesFresh, wheelsSettled(), pathClear, now,
+          pose.p.x, pose.p.y, pose.yaw)) {
+        halt("START_ENTRY_POSE_INVALID", Fault::CONTROL);
+        return;
+      }
+      lastPlanMs = now;
+    }
+    if (boundaryMotion.phase == PlannerStartEntryPhase::BRAKE &&
+        (dL != 0 || dR != 0)) lastPlanMs = now;
+    const PlannerStartEntryPhase entryPhase = PlannerStartEntryMotion_Step(
+        &boundaryMotion, entry, now, pose.p.x, pose.p.y, pose.yaw,
+        poseFresh, rangesFresh, pathClear,
+        PlannerGoalPulseQuiet(now, lastPlanMs, 80U) &&
+            wheelsSettled() && dL == 0 && dR == 0);
+    if (entryPhase == PlannerStartEntryPhase::FAULT) {
+      halt("START_ENTRY_FAULT", Fault::CONTROL);
+    } else if (entryPhase == PlannerStartEntryPhase::COMPLETE) {
+      stopMotors(true);
+      if (!footprintFree(pose.p.x, pose.p.y, sinYaw, cosYaw, now, true)) {
+        halt("START_HANDOFF_BLOCKED", Fault::CONTROL);
+        return;
+      }
+      boundaryMotion = {};
+      leavingStartLine = false;
+      status = "START_ENTRY_COMPLETE";
+    } else if (entryPhase == PlannerStartEntryPhase::BRAKE) {
+      if (boundaryMotion.brake_ms == now) lastPlanMs = now;
+      status = "START_ENTRY_BRAKE";
+      stopMotors(true);
+    } else if (entryPhase == PlannerStartEntryPhase::DRIVE) {
+      status = "START_ENTRY_DRIVE";
+      driveForward(entry.speed_cm_s, 0.0f, motorDt);
+    }
+    return;
+  }
+#endif
 #if HYBRID_PLANNER_ROUTE
   pollPlannerRuntime(now, dt, emergency);
+  if (mode == RunMode::LOCKED) return;
+#if HYBRID_PLANNER_128K
+  if (plannerStatus == ONE_RUN_COMPLETE) {
+    if (boundaryMotion.phase != PlannerGoalExitPhase::IDLE) {
+      const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
+      if (boundaryMotion.phase == PlannerGoalExitPhase::BRAKE &&
+          (dL != 0 || dR != 0)) lastPlanMs = now;
+      const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
+      const bool poseFresh = plannerPoseVerified && gyroReady &&
+          now - lastGyroGoodMs <= SENSOR_STALE_MS &&
+          now - lastEncoderSampleMs <= SENSOR_STALE_MS;
+      bool rangesFresh = frameReady && now - frameAt <= SENSOR_STALE_MS;
+      for (uint8_t i = 0; i < SENSOR_COUNT; ++i)
+        rangesFresh &= vlReady[i] && frame[i].stableOrigin &&
+                       frame[i].mm != 0U && now - frame[i].at <= SENSOR_STALE_MS;
+      const PlannerGoalExitPhase phase = PlannerGoalExitMotion_Step(
+          &boundaryMotion, motionConfig, now, pose.p.x, pose.p.y, pose.yaw,
+          poseFresh, rangesFresh,
+          !emergency && frontSpeedLimit(frontClearance) >= motionConfig.speed_cm_s &&
+              goalExitMovingPathClear(motionConfig, now),
+          pulseQuiet && wheelsSettled() && dL == 0 && dR == 0);
+      plan = {};
+      if (phase == PlannerGoalExitPhase::FAULT) {
+        halt("GOAL_EXIT_FAULT", Fault::CONTROL);
+      } else if (phase == PlannerGoalExitPhase::COMPLETE) {
+        stopMotors(true);
+        halt("FINISH_LINE_PASSED", Fault::NONE);
+      } else if (phase == PlannerGoalExitPhase::BRAKE) {
+        if (boundaryMotion.brake_ms == now) lastPlanMs = now;
+        status = "GOAL_EXIT_BRAKE";
+        stopMotors(true);
+      } else if (phase == PlannerGoalExitPhase::DRIVE) {
+        status = "GOAL_EXIT_DRIVE";
+        driveForward(motionConfig.speed_cm_s, 0.0f, motorDt);
+      }
+      return;
+    }
+    // stopMotors resets the PI speed filter, so use actual encoder pulses.
+    // Require an 80 ms pulse-free interval before accepting the final pose.
+    if (dL != 0 || dR != 0) lastPlanMs = now;
+    plan = {};
+    stopMotors(true);
+    const bool pulseQuiet = PlannerGoalPulseQuiet(now, lastPlanMs, 80U);
+    if (uint32_t(now - stoppedAt) > 500U) {
+      halt("GOAL_SETTLE_TIMEOUT", Fault::CONTROL);
+      return;
+    }
+    if (!pulseQuiet) {
+      status = "PLANNER_GOAL_SETTLING";
+      return;
+    }
+    const GoalExitPreflight preflight = checkGoalExitCorridor(now, pulseQuiet);
+    if (preflight == GoalExitPreflight::WAIT_SENSORS) {
+      status = "GOAL_EXIT_SENSOR_SETTLING";
+      return;
+    }
+    if (preflight != GoalExitPreflight::CLEAR) {
+      halt(preflight == GoalExitPreflight::UNVERIFIED ?
+          "GOAL_EXIT_UNVERIFIED" : "GOAL_EXIT_BLOCKED", Fault::CONTROL);
+      return;
+    }
+    const PlannerGoalExitMotionConfig motionConfig = goalExitMotionConfig();
+    if (!PlannerGoalExitMotion_Begin(&boundaryMotion, motionConfig, true,
+                                     now, pose.p.y)) {
+      halt("GOAL_EXIT_UNVERIFIED", Fault::CONTROL);
+      return;
+    }
+    status = "GOAL_EXIT_READY";
+    return;
+  }
+  if (boundaryMotion.phase != PlannerGoalExitPhase::IDLE) {
+    halt("GOAL_EXIT_MISSION_LOST", Fault::CONTROL);
+    return;
+  }
+#endif
   if (plannerGoalReached) {
     plan = {};
     status = "PLANNER_GOAL_REACHED";
@@ -1396,7 +1983,14 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     return;
   }
-  if (plannerStatus != ONE_RUN_OK) plan = {};
+  // A plan is cached for up to 30 ms. Recheck the current mission/safety
+  // permission on every control tick before that cached command is reused.
+  if (plannerStatus != ONE_RUN_OK || !PlannerRuntime_PreviewPermitted()) plan = {};
+#if HYBRID_PLANNER_128K
+  // A pause/replan changes the route origin. Its previous progress timer
+  // cannot be used to judge the next route.
+  if (plannerStatus != ONE_RUN_OK) plannerHealth.reset();
+#endif
 #endif
   if (now - lastPlanMs >= 30) {
     lastPlanMs = now;
@@ -1412,6 +2006,25 @@ void loop() {
     motion = plan;
     safeArc = slewSafeCurve(motion, forwardSpeed, motorDt, now);
   }
+#if HYBRID_PLANNER_ROUTE && HYBRID_PLANNER_128K
+  if (plannerStatus == ONE_RUN_OK && motion.speed > 0.0f) {
+    PlannerHealthSample healthSample{};
+    healthSample.now_ms = now;
+    healthSample.cross_track_cm = plannerRouteTarget.cross_track_cm;
+    healthSample.route_progress_cm = plannerRouteTarget.progress_cm;
+    healthSample.command_cm_s = commandedSpeed;
+    healthSample.left_cm = dL / MAP_COUNTS_CM_L;
+    healthSample.right_cm = dR / MAP_COUNTS_CM_R;
+    healthSample.gyro_delta_rad = remainderf(pose.yaw - oldYaw,
+                                              6.28318530718f);
+    healthSample.route_active = true;
+    if (plannerHealth.update(plannerHealthConfig, healthSample) !=
+        PlannerHealthFault::NONE) {
+      halt("PLANNER_HEALTH_STOP", Fault::CONTROL);
+      return;
+    }
+  } else plannerHealth.reset();
+#endif
   // Con co the lua cung tranh o toc do bo khi front chi vua qua nguong khan cap.
   const float frontLimit = fmaxf(5.0f, frontSpeedLimit(frontClearance));
   float speed = fminf(motion.speed, frontLimit);

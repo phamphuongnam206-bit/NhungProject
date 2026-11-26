@@ -16,6 +16,7 @@ class CourseLayoutTest(unittest.TestCase):
             boxes[name] = [x-hx, y-hy, 2*hx, 2*hy]
         self.assertEqual(set(boxes), {"forbidden"} | {f"T{i}" for i in range(1,18)})
         self.assertEqual(boxes["forbidden"], CONFIG["forbidden_rect_cm"])
+        self.assertEqual(boxes["T7"], [30.0, 85.0, 10.0, 10.0])
         for obstacle in CONFIG["obstacles"]:
             self.assertEqual(boxes[obstacle["id"]], obstacle["rect_cm"])
         for rect in boxes.values():
@@ -23,5 +24,23 @@ class CourseLayoutTest(unittest.TestCase):
         self.assertIn("MapGrid_SetRectangle(&baseMap", SOURCE)
         self.assertIn("for (const Box &box : MAP_BOXES)", SOURCE)
         self.assertIn("#define HYBRID_PLANNER_INPUTS_VERIFIED 0", SOURCE)
+
+    def test_tape_and_gate_classification(self):
+        self.assertEqual(CONFIG["grid_cm"], 5)
+        self.assertEqual(CONFIG["start_gate_cm"], [0, 60, 0])
+        self.assertEqual(CONFIG["goal_gate_cm"], [120, 180, 0])
+        self.assertIsNone(CONFIG["start_cm"])
+        self.assertIsNone(CONFIG["goal_cm"])
+        self.assertFalse(CONFIG["arena_edges_reflect"])
+        self.assertFalse(CONFIG["forbidden_reflects"])
+        self.assertIn("scan.first_reflector_index = 1U", SOURCE)
+        self.assertIn("scan.arena_edges_reflect = 0U", SOURCE)
+
+    def test_collision_width_covers_reported_vehicle(self):
+        for axis, dimension in (("WIDTH", "width"), ("LENGTH", "length")):
+            match = re.search(rf"HALF_{axis}\s*=\s*([0-9.]+)f", SOURCE)
+            self.assertIsNotNone(match)
+            self.assertGreaterEqual(2 * float(match.group(1)),
+                                    CONFIG[f"robot_{dimension}_cm"])
 
 if __name__ == "__main__": unittest.main()
