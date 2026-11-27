@@ -17,7 +17,7 @@ const MapRect robot_obstacles[18] = {
 // Offline route drawn from the verified fixed-map corridor. A runtime
 // footprint sweep below rejects it if geometry or dimensions change.
 const RobotPoint robot_route[] = {
-    {300,-80}, {425,-70}, {425,625}, {575,925},
+    {300,-80}, {300,120}, {425,120}, {425,625}, {575,925},
     {1600,575}, {1575,300}, {1575,-165}
 };
 const uint8_t robot_route_count = sizeof(robot_route) / sizeof(robot_route[0]);

@@ -3,7 +3,10 @@
 #include "stm32f1xx_hal.h"
 #include <math.h>
 
-static TIM_HandleTypeDef pwm_timer, left_counter, right_counter, speed_timer;
+static TIM_HandleTypeDef pwm_timer, left_counter, right_counter;
+#ifndef ROBOT_MOTOR_DIAG
+static TIM_HandleTypeDef speed_timer;
+#endif
 static I2C_HandleTypeDef imu_bus;
 volatile uint8_t g_bsp_stage;
 
@@ -150,6 +153,7 @@ bool bsp_init(void) {
     g_bsp_stage = 6;
     if (!imu_bus_start()) return false;
     g_bsp_stage = 7;
+#ifndef ROBOT_MOTOR_DIAG
     __HAL_RCC_TIM1_CLK_ENABLE();
     speed_timer.Instance = TIM1;
     speed_timer.Init.Prescaler = 7199;
@@ -162,6 +166,7 @@ bool bsp_init(void) {
     HAL_NVIC_EnableIRQ(TIM1_UP_IRQn);
     if (HAL_TIM_Base_Start_IT(&speed_timer) != HAL_OK) return false;
     g_bsp_stage = 9;
+#endif
     return true;
 }
 

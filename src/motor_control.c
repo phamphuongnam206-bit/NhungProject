@@ -31,6 +31,7 @@ void motor_control_stop(void) {
         wheels[i].integral = 0;
         wheels[i].duty = 0;
         wheels[i].applied_direction = 0;
+        wheels[i].low_motion_ms = 0;
     }
     __set_PRIMASK(mask);
 }
@@ -60,6 +61,7 @@ void motor_control_set(float left_mm_s, float right_mm_s, uint32_t now_ms) {
             bsp_motor_output(i, 0);
             w->integral = 0;
             w->applied_direction = direction;
+            w->low_motion_ms = 0;
         }
         w->target_mm_s = next;
     }
@@ -92,12 +94,22 @@ void motor_control_tick_isr(void) {
         if (!enabled || fabsf(w->target_mm_s) < 10.0f) {
             w->integral = 0;
             w->duty = 0;
+            w->low_motion_ms = 0;
             bsp_motor_output(i, 0);
             continue;
         }
         const float gain = i == 0 ? ROBOT_FF_GAIN_L : ROBOT_FF_GAIN_R;
         w->duty = speed_pi_step(w->target_mm_s,w->measured_mm_s,
                                  gain,0.005f,&w->integral);
+        if (fabsf(w->target_mm_s) > 40.0f &&
+            w->measured_mm_s * w->target_mm_s >= 0.0f &&
+            fabsf(w->measured_mm_s) < 0.35f*fabsf(w->target_mm_s)) {
+            if (w->low_motion_ms < 500u) w->low_motion_ms += 5u;
+            const float start_duty = fminf(ROBOT_PWM_LIMIT,
+                                           78.0f/255.0f + 0.0005f*w->low_motion_ms);
+            if (fabsf(w->duty) < start_duty)
+                w->duty = copysignf(start_duty,w->target_mm_s);
+        } else w->low_motion_ms = 0;
         bsp_motor_output(i, w->duty);
     }
 }

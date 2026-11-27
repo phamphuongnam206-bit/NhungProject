@@ -10,6 +10,7 @@ typedef struct {
     int32_t counts_window[4];
     uint8_t window_index;
     int8_t applied_direction;
+    uint16_t low_motion_ms;
 } WheelControl;
 
 void motor_control_init(void);
