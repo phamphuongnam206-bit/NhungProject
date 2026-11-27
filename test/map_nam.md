@@ -5,13 +5,13 @@
 | Thao tác | Phản hồi của xe |
 |---|---|
 | Bật nguồn khi xe đứng yên | PC13 nháy 4 lần trong lúc khởi tạo và đo bias gyro. Sau đó đèn tắt, hai động cơ dừng ở IDLE. |
-| Nhấn và nhả SW1 ở START | PC13 nháy. Xe lấy 7 khung đo. Khi báo `BT_READY`, người lái có thể bắt đầu lượt khảo sát. |
+| Nhấn và nhả SW1 ở START | PC13 nháy. Xe lấy 7 khung đo. Khi báo `CHAY BLUETOOTH`, người lái có thể bắt đầu lượt khảo sát. |
 | Lái bằng HC-05 ở 38400 baud | `F/B` tiến/lùi, `L/R` xoay, `G/I` cua tiến, `H/J` cua lùi, `0/X` nhả, `U/D/M/Q` chọn tốc độ. Lệnh hướng hết hiệu lực sau 667 ms, ứng dụng cần lặp lệnh khi giữ phím. |
-| Qua FINISH rồi gửi `S` | Xe dừng và báo `MAP_LOCKED`. Giữ nguồn trong lúc nhấc xe đặt lại START. |
+| Qua FINISH rồi gửi `S` | Xe dừng và báo `DA LUU BAN DO`. Giữ nguồn trong lúc nhấc xe đặt lại START. |
 | Nhấn và nhả SW1 lần hai | PC13 sáng liên tục. Xe đo lại START, kiểm tra mức phân biệt giữa các vị trí và hướng khả dĩ rồi mới cấp lệnh chạy. AUTO tự thực hiện cả lượt. |
 | Cả thân xe qua FINISH | Xe dừng, xóa trạng thái điều khiển hành trình và trở về IDLE, PC13 tắt. Lần nhấn sau bắt đầu bản đồ mới. |
 
-SW1 nối PB1 xuống GND khi nhấn, dùng `INPUT_PULLUP` và chống dội 35 ms. PC13 sáng ở mức LOW. Gửi `?` để lấy một dòng chẩn đoán. Giá trị −1 trong `J8_11mm` nghĩa là số đo tương ứng thiếu hoặc quá hạn. `RAW16` cho biết số đếm phần cứng khi quay bánh bằng tay. `confidence` biểu thị chất lượng của kết quả ghép bản đồ.
+SW1 nối PB1 xuống GND khi nhấn, dùng `INPUT_PULLUP` và chống dội 35 ms. PC13 sáng ở mức LOW. Bluetooth gửi một dòng trạng thái khi đổi trạng thái và mỗi giây. Gửi `?` để hỏi trạng thái ngay.
 
 ## Kết quả build cho STM32F103C8T6
 

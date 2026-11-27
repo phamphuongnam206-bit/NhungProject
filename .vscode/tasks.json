@@ -6,6 +6,10 @@
       "label": "1. Nap code STM32 (ST-LINK)",
       "type": "process",
       "command": "powershell.exe",
+      "osx": {
+        "command": "${env:HOME}/.platformio/penv/bin/python",
+        "args": ["${workspaceFolder}/.vscode/upload-mac.py", "${file}"]
+      },
       "args": [
         "-NoProfile",
         "-ExecutionPolicy",
@@ -32,9 +36,13 @@
       "problemMatcher": []
     },
     {
-      "label": "2. Xem Serial (Chon COM)",
+      "label": "2. Xem Serial STM32",
       "type": "process",
       "command": "powershell.exe",
+      "osx": {
+        "command": "/bin/zsh",
+        "args": ["${workspaceFolder}/.vscode/serial-mac.zsh"]
+      },
       "args": [
         "-NoProfile",
         "-ExecutionPolicy",

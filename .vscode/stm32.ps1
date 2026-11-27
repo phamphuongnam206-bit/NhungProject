@@ -45,7 +45,7 @@ if ($Action -eq "upload") {
     # Chi bien dich file dang mo.
     # Su dung cau hinh chung tu env:led.
     $env:PLATFORMIO_BUILD_SRC_FILTER = "-<*> +<$SourceFile>"
-    $buildEnv = if ($SourceFile -eq "map_nam.cpp") { "map_nam" } else { "led" }
+    $buildEnv = if ($SourceFile -eq "map_static.cpp") { "map_static" } elseif ($SourceFile -eq "map_nam.cpp") { "map_nam" } else { "led" }
 
     try {
         Write-Host "Dang lam sach Build cu..."
@@ -174,7 +174,7 @@ if ($Action -eq "monitor") {
 
         Write-Host ""
         Write-Host "DA CHON $selectedPort" -ForegroundColor Green
-        $baud = if ($SourceFile -eq "map_nam.cpp") { 38400 } else { 115200 }
+        $baud = if ($SourceFile -in @("map_nam.cpp", "map_static.cpp")) { 38400 } else { 115200 }
         Write-Host "Dang mo Serial - $baud baud..."
         Write-Host "Ctrl+C de dung."
         Write-Host ""
