@@ -1,0 +1,7 @@
+.pio/
+.venv/
+__pycache__/
+*.pyc
+*.exe
+*.map
+*.pdb
