@@ -5,6 +5,7 @@
 
 static TIM_HandleTypeDef pwm_timer, left_counter, right_counter, speed_timer;
 static I2C_HandleTypeDef imu_bus;
+volatile uint8_t g_bsp_stage;
 
 static bool clock_start(void) {
     RCC_OscInitTypeDef osc = {0};
@@ -112,10 +113,13 @@ static bool imu_bus_start(void) {
     HAL_GPIO_WritePin(GPIOB,GPIO_PIN_7,GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOB,GPIO_PIN_6,GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB,GPIO_PIN_7,GPIO_PIN_SET);
+    // Test the actual released lines while GPIO still owns the open-drain pins.
+    // In AF mode with I2C disabled, the pins need not read HIGH yet.
+    const bool released = HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_6)!=GPIO_PIN_RESET &&
+                          HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_7)!=GPIO_PIN_RESET;
     pins.Mode = GPIO_MODE_AF_OD;
     HAL_GPIO_Init(GPIOB,&pins);
-    if (HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_6)==GPIO_PIN_RESET ||
-        HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_7)==GPIO_PIN_RESET) return false;
+    if (!released) return false;
     __HAL_RCC_I2C1_CLK_ENABLE();
     __HAL_RCC_I2C1_FORCE_RESET();
     __HAL_RCC_I2C1_RELEASE_RESET();
@@ -131,13 +135,21 @@ static bool imu_bus_start(void) {
 
 bool bsp_init(void) {
     if (HAL_Init() != HAL_OK) return false;
+    g_bsp_stage = 1;
     if (!clock_start()) return false;
+    g_bsp_stage = 2;
     gpio_start();
+    g_bsp_stage = 3;
     if (!pwm_start()) return false;
+    g_bsp_stage = 4;
     __HAL_RCC_TIM2_CLK_ENABLE();
     __HAL_RCC_TIM3_CLK_ENABLE();
-    if (!counter_start(&left_counter, TIM3) || !counter_start(&right_counter, TIM2)) return false;
+    if (!counter_start(&left_counter, TIM3)) return false;
+    g_bsp_stage = 5;
+    if (!counter_start(&right_counter, TIM2)) return false;
+    g_bsp_stage = 6;
     if (!imu_bus_start()) return false;
+    g_bsp_stage = 7;
     __HAL_RCC_TIM1_CLK_ENABLE();
     speed_timer.Instance = TIM1;
     speed_timer.Init.Prescaler = 7199;
@@ -145,9 +157,12 @@ bool bsp_init(void) {
     speed_timer.Init.CounterMode = TIM_COUNTERMODE_UP;
     speed_timer.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     if (HAL_TIM_Base_Init(&speed_timer) != HAL_OK) return false;
+    g_bsp_stage = 8;
     HAL_NVIC_SetPriority(TIM1_UP_IRQn, 2, 0);
     HAL_NVIC_EnableIRQ(TIM1_UP_IRQn);
-    return HAL_TIM_Base_Start_IT(&speed_timer) == HAL_OK;
+    if (HAL_TIM_Base_Start_IT(&speed_timer) != HAL_OK) return false;
+    g_bsp_stage = 9;
+    return true;
 }
 
 uint32_t bsp_millis(void) { return HAL_GetTick(); }
