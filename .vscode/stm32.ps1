@@ -45,10 +45,11 @@ if ($Action -eq "upload") {
     # Chi bien dich file dang mo.
     # Su dung cau hinh chung tu env:led.
     $env:PLATFORMIO_BUILD_SRC_FILTER = "-<*> +<$SourceFile>"
+    $buildEnv = if ($SourceFile -eq "map_nam.cpp") { "map_nam" } else { "led" }
 
     try {
         Write-Host "Dang lam sach Build cu..."
-        & $pio run -e led -t clean
+        & $pio run -e $buildEnv -t clean
 
         if ($LASTEXITCODE -ne 0) {
             Write-Host "CLEAN THAT BAI!" -ForegroundColor Red
@@ -56,7 +57,7 @@ if ($Action -eq "upload") {
         }
 
         Write-Host "Dang bien dich va nap..."
-        & $pio run -e led -t upload
+        & $pio run -e $buildEnv -t upload
         $result = $LASTEXITCODE
 
         if ($result -eq 0) {
@@ -173,11 +174,12 @@ if ($Action -eq "monitor") {
 
         Write-Host ""
         Write-Host "DA CHON $selectedPort" -ForegroundColor Green
-        Write-Host "Dang mo Serial - 115200 baud..."
+        $baud = if ($SourceFile -eq "map_nam.cpp") { 38400 } else { 115200 }
+        Write-Host "Dang mo Serial - $baud baud..."
         Write-Host "Ctrl+C de dung."
         Write-Host ""
 
-        & $pio device monitor -p $selectedPort -b 115200
+        & $pio device monitor -p $selectedPort -b $baud
 
         $result = $LASTEXITCODE
 

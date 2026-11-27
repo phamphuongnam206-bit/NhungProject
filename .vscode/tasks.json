@@ -42,7 +42,9 @@
         "-File",
         "${workspaceFolder}\\.vscode\\stm32.ps1",
         "-Action",
-        "monitor"
+        "monitor",
+        "-SourceFile",
+        "${fileBasename}"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
