@@ -2,6 +2,8 @@
 
 `robot_v1` and `robot_v2` both compile with PlatformIO. `robot_v2` is intentionally locked and does not meet full autonomous V2 requirements. Five Zig/Clang C11 host programs pass via `powershell -ExecutionPolicy Bypass -File tools/test.ps1`:
 
+The `arm-none-eabi-gcc.exe` executable installed under the PlatformIO toolchain package reports version **12.3.1** (`20230626`). The builds have no application-source warnings; the STM32Cube HAL package emits unused-parameter warnings in `stm32f1xx_hal_pcd.c` and `stm32f1xx_ll_utils.c`. The linker map uses Flash `0x08000000` length `0x10000` and RAM `0x20000000` length `0x5000`.
+
 | Test | Checked | Result |
 | --- | --- | --- |
 | `test_geometry` | 17 blocks, forbidden zone, body sweep, pivots, boundaries | PASS |
